@@ -1,0 +1,6 @@
+{
+  "name": "CoLASH Foundation",
+  "description": "Official digital platform of CoLASH Foundation: humanitarian aid, education scholarships, community health, volunteer portal, and transparent donation system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

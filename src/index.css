@@ -1,0 +1,682 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --brand-navy: #102B3F;
+    --brand-teal: #167D78;
+    --brand-lime: #D6F36A;
+    --brand-ivory: #F5F3ED;
+    --brand-amber: #E6A15B;
+
+    /* Motion Design Tokens */
+    --duration-instant: 100ms;
+    --duration-fast: 160ms;
+    --duration-normal: 240ms;
+    --duration-smooth: 360ms;
+    --duration-reveal: 520ms;
+    --duration-cinematic: 760ms;
+    --duration-page: 420ms;
+
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+    --ease-emphasis: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  html {
+    overflow-x: clip;
+    max-width: 100vw;
+    width: 100%;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', 'Hind Siliguri', system-ui, -apple-system, sans-serif;
+    overflow-x: clip;
+    max-width: 100vw;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  #root {
+    overflow-x: clip;
+    max-width: 100vw;
+    width: 100%;
+    min-height: 100vh;
+  }
+
+  .font-bengali {
+    font-family: 'Hind Siliguri', 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+}
+
+/* Modern Card Hover & Smooth Transitions */
+.card-hover-lift {
+  transition: transform 300ms cubic-bezier(0.2, 0, 0, 1),
+              box-shadow 300ms cubic-bezier(0.2, 0, 0, 1),
+              border-color 300ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform, box-shadow;
+}
+.card-hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px -8px rgba(16, 43, 63, 0.12);
+}
+
+.img-zoom-hover {
+  transition: transform 500ms cubic-bezier(0.2, 0, 0, 1);
+}
+.group:hover .img-zoom-hover {
+  transform: scale(1.05);
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spinSlow 16s linear infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+/* Horizontal Continuous News-Ticker Marquee Animation (Hardware-Accelerated Smooth Linear Ticker) */
+@keyframes marqueeScroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@-webkit-keyframes marqueeScroll {
+  0% {
+    -webkit-transform: translate3d(0, 0, 0);
+  }
+  100% {
+    -webkit-transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes continuousTickerSlide {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@-webkit-keyframes continuousTickerSlide {
+  0% {
+    -webkit-transform: translate3d(0, 0, 0);
+  }
+  100% {
+    -webkit-transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-marquee-ticker,
+.hero-ticker-track {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  width: max-content !important;
+  min-width: 200% !important;
+  animation: marqueeScroll 28s linear infinite !important;
+  -webkit-animation: marqueeScroll 28s linear infinite !important;
+  animation-timing-function: linear !important;
+  -webkit-animation-timing-function: linear !important;
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
+}
+
+/* Only pause when explicitly commanded via pause toggle button, never freeze on mobile touch or hover */
+.animate-marquee-ticker.is-paused,
+.hero-ticker-track.is-paused {
+  animation-play-state: paused !important;
+  -webkit-animation-play-state: paused !important;
+}
+
+@keyframes emergencyBeacon {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+}
+
+.animate-emergency-beacon {
+  animation: emergencyBeacon 1.6s cubic-bezier(0.2, 0, 0.2, 1) infinite;
+}
+
+/* Button & Interaction Utility Classes */
+.btn-primary-interaction {
+  transition: transform var(--duration-fast) var(--ease-emphasis),
+              background-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
+  will-change: transform;
+}
+.btn-primary-interaction:hover {
+  transform: translateY(-2px);
+}
+.btn-primary-interaction:active {
+  transform: translateY(0px) scale(0.98);
+}
+
+.btn-outline-interaction {
+  transition: transform var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard);
+  will-change: transform;
+}
+.btn-outline-interaction:hover {
+  transform: translateY(-1px);
+}
+.btn-outline-interaction:active {
+  transform: translateY(0px) scale(0.98);
+}
+
+.btn-icon-interaction {
+  transition: transform var(--duration-instant) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.btn-icon-interaction:active {
+  transform: scale(0.93);
+}
+
+/* Page Transition States */
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--duration-smooth) var(--ease-enter),
+              transform var(--duration-smooth) var(--ease-enter);
+}
+.page-transition-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.page-transition-exit-active {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--duration-fast) var(--ease-exit),
+              transform var(--duration-fast) var(--ease-exit);
+}
+
+/* Smooth 0% -> target width CSS transition for donation goal progress bars */
+.donation-progress-fill {
+  transition-property: width;
+  transition-duration: 950ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
+}
+
+/* QR Verification Success & Green Tick Animations */
+@keyframes verifyTickPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.45) rotate(-14deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.16) rotate(4deg);
+  }
+  82% {
+    transform: scale(0.95) rotate(-1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes verifyTickDraw {
+  0% {
+    stroke-dashoffset: 32;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes verifyRingPulse {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.95);
+  }
+}
+
+@keyframes verifyHighlightSweep {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.65;
+  }
+  100% {
+    transform: translateX(220%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+.animate-verify-tick-pop {
+  animation: verifyTickPop 520ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-verify-tick-draw {
+  stroke-dasharray: 32;
+  stroke-dashoffset: 32;
+  animation: verifyTickDraw 420ms cubic-bezier(0.22, 1, 0.36, 1) 180ms forwards;
+}
+
+.animate-verify-ring-pulse {
+  animation: verifyRingPulse 1.15s cubic-bezier(0.2, 0, 0.2, 1) 120ms 2 forwards;
+}
+
+.animate-verify-sweep {
+  animation: verifyHighlightSweep 950ms cubic-bezier(0.22, 1, 0.36, 1) 140ms 1 forwards;
+}
+
+/* Accessibility: Respect Reduced Motion Preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================================
+   Hard-Copy Print Stylesheet (Member Directory, Donation Receipts & Audit Tables)
+   ============================================================================ */
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 12mm 14mm 12mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  html,
+  body,
+  #root {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 9.5pt !important;
+    line-height: 1.45 !important;
+  }
+
+  /* Ensure global chrome & interactive UI are hidden during hard-copy print */
+  .no-print,
+  header,
+  nav,
+  footer,
+  [role="status"] {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-only-flex {
+    display: flex !important;
+  }
+
+  /* Prevent ScrollReveal or transform utilities from clipping or hiding elements */
+  section,
+  main {
+    opacity: 1 !important;
+    transform: none !important;
+    overflow: visible !important;
+    padding-top: 0 !important;
+    padding-bottom: 8pt !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     1. Modal Print Isolation (Donation Receipt Modals & Audit Statement Modal)
+     -------------------------------------------------------------------------- */
+  body:has(.print-modal-backdrop) #root > div > *:not(.print-modal-backdrop):not(:has(.print-modal-backdrop)),
+  body:has(.print-modal-backdrop) section:has(.print-modal-backdrop) > *:not(.print-modal-backdrop) {
+    display: none !important;
+  }
+
+  .print-modal-backdrop {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+  }
+
+  .print-modal-dialog {
+    position: static !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: none !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .print-modal-dialog * {
+    color-scheme: light !important;
+  }
+
+  .print-modal-scroll-body {
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 8pt 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     2. Donation Receipt Modals (#printable-money-receipt & #official-receipt-print)
+     -------------------------------------------------------------------------- */
+  .print-donation-receipt,
+  #printable-money-receipt,
+  #official-receipt-print {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 18pt 20pt !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1.5pt solid #167D78 !important;
+    border-radius: 8pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .print-donation-receipt *,
+  #printable-money-receipt *,
+  #official-receipt-print * {
+    background-color: transparent !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  .print-donation-receipt .receipt-accent,
+  #printable-money-receipt .receipt-accent,
+  #official-receipt-print .receipt-accent {
+    color: #0f766e !important;
+  }
+
+  .print-donation-receipt .receipt-badge,
+  #printable-money-receipt .receipt-badge,
+  #official-receipt-print .receipt-badge {
+    background-color: #102B3F !important;
+    color: #ffffff !important;
+    border-color: #102B3F !important;
+  }
+
+  .print-donation-receipt .receipt-summary-box,
+  #printable-money-receipt .receipt-summary-box,
+  #official-receipt-print .receipt-summary-box {
+    background-color: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  .print-donation-receipt img,
+  #printable-money-receipt img,
+  #official-receipt-print img {
+    max-width: 72pt !important;
+    max-height: 72pt !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     3. Member Directory Grid & Cards (AboutSection & MembersDirectoryModal)
+     -------------------------------------------------------------------------- */
+  .print-member-directory-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10pt !important;
+    width: 100% !important;
+    margin-top: 8pt !important;
+  }
+
+  .print-member-card {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid #94a3b8 !important;
+    border-radius: 6pt !important;
+    padding: 10pt !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    overflow: visible !important;
+  }
+
+  .print-member-card h4,
+  .print-member-card p,
+  .print-member-card span,
+  .print-member-card div {
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  .print-member-card .print-role-box {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 5pt 7pt !important;
+    border-radius: 4pt !important;
+  }
+
+  .print-member-card .print-blood-pill {
+    background: #fff1f2 !important;
+    color: #be123c !important;
+    border: 1px solid #fda4af !important;
+  }
+
+  .print-member-card .print-status-pill {
+    background: #ecfdf5 !important;
+    color: #047857 !important;
+    border: 1px solid #6ee7b7 !important;
+  }
+
+  .print-member-card .print-member-sl {
+    background: #102B3F !important;
+    color: #ffffff !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     4. Annual Audit Tables & Member Directory Tables
+     -------------------------------------------------------------------------- */
+  .print-audit-table-wrapper,
+  .print-table-wrapper {
+    overflow: visible !important;
+    max-width: 100% !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .print-audit-table,
+  .print-member-directory-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: auto !important;
+    font-size: 8.75pt !important;
+    line-height: 1.35 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  .print-audit-table thead,
+  .print-member-directory-table thead {
+    display: table-header-group !important;
+    background: #f1f5f9 !important;
+  }
+
+  .print-audit-table tfoot,
+  .print-member-directory-table tfoot {
+    display: table-footer-group !important;
+  }
+
+  .print-audit-table tr,
+  .print-member-directory-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    background: #ffffff !important;
+  }
+
+  .print-audit-table tbody tr:nth-child(even),
+  .print-member-directory-table tbody tr:nth-child(even) {
+    background: #f8fafc !important;
+  }
+
+  .print-audit-table th,
+  .print-member-directory-table th {
+    background: #e2e8f0 !important;
+    color: #102B3F !important;
+    font-weight: 700 !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 5.5pt 6.5pt !important;
+    text-align: left !important;
+    white-space: nowrap !important;
+  }
+
+  .print-audit-table th.text-right,
+  .print-member-directory-table th.text-right {
+    text-align: right !important;
+  }
+
+  .print-audit-table td,
+  .print-member-directory-table td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 5pt 6.5pt !important;
+    color: #0f172a !important;
+    vertical-align: top !important;
+  }
+
+  .print-audit-table td *,
+  .print-member-directory-table td * {
+    color: #0f172a !important;
+  }
+
+  .print-audit-table .line-clamp-1,
+  .print-member-directory-table .line-clamp-1 {
+    display: block !important;
+    -webkit-line-clamp: unset !important;
+    overflow: visible !important;
+    white-space: normal !important;
+  }
+
+  /* Audit & KPI Summary Cards in TransparencySection */
+  .print-audit-kpi-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8pt !important;
+    margin-bottom: 12pt !important;
+  }
+
+  .print-audit-kpi-card {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    background: #f8fafc !important;
+    border: 1px solid #94a3b8 !important;
+    border-radius: 6pt !important;
+    padding: 8pt 10pt !important;
+  }
+
+  .print-audit-kpi-card * {
+    color: #0f172a !important;
+  }
+
+  .print-document-header {
+    display: block !important;
+    border-bottom: 1.5pt solid #102B3F !important;
+    padding-bottom: 8pt !important;
+    margin-bottom: 12pt !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  /* Keep charts compact & prevent split across pages */
+  .recharts-wrapper,
+  .recharts-responsive-container {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    max-width: 100% !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     5. Logged-in Member Digital Identity Card (#logged-in-member-digital-id-card)
+     -------------------------------------------------------------------------- */
+  .print-portal-id-card,
+  #logged-in-member-digital-id-card {
+    max-width: 520pt !important;
+    margin: 12pt auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    box-shadow: none !important;
+  }
+}
+

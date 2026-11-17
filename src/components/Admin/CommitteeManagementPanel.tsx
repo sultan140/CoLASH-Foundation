@@ -136,23 +136,134 @@ export const CommitteeManagementPanel: React.FC<CommitteeManagementPanelProps> =
   };
 
   // Save Term (Create or Edit)
-  const handleSaveTermSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!hasPermission) {
-      onToast('error', language === 'bn' ? 'অনুমতি নেই' : 'Permission Denied');
-      return;
+// Member Save (Create or Edit)
+const handleSaveMemberSubmit = (
+  e: React.FormEvent<HTMLFormElement>
+) => {
+  e.preventDefault();
+
+  if (!hasPermission) {
+    onToast(
+      'error',
+      language === 'bn' ? 'অনুমতি নেই' : 'Permission Denied'
+    );
+    return;
+  }
+
+  const formData = new FormData(e.currentTarget);
+
+  const nameBn = (formData.get('nameBn') as string).trim();
+  const nameEn = (formData.get('nameEn') as string).trim();
+  const roleBn = (formData.get('roleBn') as string).trim();
+  const roleEn = (formData.get('roleEn') as string).trim();
+  const category = formData.get('category') || 'executive';
+  const email = (formData.get('email') as string).trim();
+  const phone = (formData.get('phone') as string).trim();
+  const bioBn = (formData.get('bioBn') as string).trim();
+  const bioEn = (formData.get('bioEn') as string).trim();
+  const isFounder = formData.get('isFounder') === 'on';
+
+  const imageUrl =
+    memberPhotoPreview ||
+    (formData.get('imageUrl') as string).trim() ||
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80';
+
+  if (!nameBn || !roleBn) {
+    onToast(
+      'error',
+      language === 'bn'
+        ? 'সদস্যের নাম ও পদবি আবশ্যক'
+        : 'Member name and role required'
+    );
+    return;
+  }
+
+  if (!activeTerm) {
+    onToast('error', 'সমস্যা হয়েছে', 'কোনো সক্রিয় কমিটি পাওয়া যায়নি।');
+    return;
+  }
+
+  try {
+    let updatedMembers: TeamMember[];
+
+    if (editingMember) {
+      // Existing member update
+      updatedMembers = activeTerm.members.map((m) =>
+        m.id === editingMember.id
+          ? {
+              ...m,
+              nameBn,
+              nameEn: nameEn || nameBn,
+              roleBn,
+              roleEn: roleEn || roleBn,
+              category: category as any,
+              email,
+              phone,
+              bioBn,
+              bioEn: bioEn || bioBn,
+              isFounder,
+              image: imageUrl
+            }
+          : m
+      );
+    } else {
+      // New member creation
+      const newMember: TeamMember = {
+        id: `tm-${Date.now()}`,
+        nameBn,
+        nameEn: nameEn || nameBn,
+        roleBn,
+        roleEn: roleEn || roleBn,
+        category: category as any,
+        email,
+        phone,
+        bioBn,
+        bioEn: bioEn || bioBn,
+        isFounder,
+        image: imageUrl
+      };
+
+      updatedMembers = [...activeTerm.members, newMember];
     }
 
-    const formData = new FormData(e.currentTarget);
-    const titleBn = (formData.get('termTitleBn') as string).trim();
-    const titleEn = (formData.get('termTitleEn') as string).trim();
-    const startYear = parseInt(formData.get('startYear') as string, 10) || 2026;
-    const endYear = parseInt(formData.get('endYear') as string, 10) || 2028;
-    const establishedDate = (formData.get('establishedDate') as string).trim();
-    const descBn = (formData.get('descriptionBn') as string).trim();
-    const descEn = (formData.get('descriptionEn') as string).trim();
-    const setAsCurrent = formData.get('isCurrent') === 'on';
+    const updatedTerms = committeeTerms.map((term) =>
+      term.id === activeTerm.id
+        ? { ...term, members: updatedMembers }
+        : term
+    );
 
+    // Persistent storage সফল না হলে catch-এ যাবে
+    onUpdateCommitteeTerms(updatedTerms);
+
+    // Save সফল হওয়ার পরেই Modal বন্ধ হবে
+    setIsMemberModalOpen(false);
+    setEditingMember(null);
+    setMemberPhotoPreview('');
+
+    onToast(
+      'success',
+      language === 'bn'
+        ? 'তথ্য সফলভাবে সংরক্ষিত হয়েছে'
+        : 'Information saved successfully',
+      language === 'bn'
+        ? 'কমিটি সদস্যের তথ্য আপডেট করা হয়েছে।'
+        : 'Committee member information has been updated.'
+    );
+
+  } catch (error) {
+    console.error('Member information save failed:', error);
+
+    onToast(
+      'error',
+      language === 'bn'
+        ? 'তথ্য সংরক্ষণ ব্যর্থ হয়েছে'
+        : 'Save Failed',
+      error instanceof Error
+        ? error.message
+        : 'আবার চেষ্টা করুন।'
+    );
+  }
+};
     if (!titleBn) {
       onToast('error', language === 'bn' ? 'কমিটির শিরোনাম লিখুন' : 'Enter committee title');
       return;

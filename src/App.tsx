@@ -261,12 +261,23 @@ export default function App() {
   });
 
   const handleUpdateCommitteeTerms = (updatedTerms: CommitteeTerm[]) => {
+  try {
+    // প্রথমে ব্রাউজারের স্টোরেজে তথ্য সংরক্ষণ
+    localStorage.setItem(
+      'colash_committee_terms',
+      JSON.stringify(updatedTerms)
+    );
+
+    // সংরক্ষণ সফল হওয়ার পরেই React State আপডেট
     setCommitteeTerms(updatedTerms);
+
+    // Audit log আলাদাভাবে সংরক্ষণ
     try {
-      localStorage.setItem('colash_committee_terms', JSON.stringify(updatedTerms));
       const newLog: AdminAuditLog = {
         id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        timestamp: new Date().toISOString()
+          .replace('T', ' ')
+          .substring(0, 16),
         adminId: currentAdmin?.id || 'adm-super-1',
         adminName: currentAdmin?.name || 'Super Admin',
         adminRole: currentAdmin?.role || 'super_admin',
@@ -274,13 +285,29 @@ export default function App() {
         actionEn: 'Updated committee terms and member rosters',
         category: 'committee'
       };
-      setAuditLogs(prev => [newLog, ...prev]);
-      localStorage.setItem('colash_audit_logs', JSON.stringify([newLog, ...auditLogs]));
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
+      const updatedLogs = [newLog, ...auditLogs];
+
+      localStorage.setItem(
+        'colash_audit_logs',
+        JSON.stringify(updatedLogs)
+      );
+
+      setAuditLogs(updatedLogs);
+    } catch (logError) {
+      console.warn('Audit log could not be saved:', logError);
+    }
+
+  } catch (error) {
+    console.error('Committee save failed:', error);
+
+    // ব্যর্থ হলে আগের ডেটা অপরিবর্তিত থাকবে
+    throw new Error(
+      'কমিটির তথ্য সংরক্ষণ করা যায়নি। ব্রাউজারের স্টোরেজ পরীক্ষা করুন।'
+    );
+  }
+};
+  
   // Advisory Council State (Persisted in LocalStorage)
   const [advisors, setAdvisors] = useState<AdvisoryCouncilMember[]>(() => {
     try {

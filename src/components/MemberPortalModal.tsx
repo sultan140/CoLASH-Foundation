@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
   User,
@@ -89,6 +90,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
   const [loginQuery, setLoginQuery] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [registrationSuccessMember, setRegistrationSuccessMember] = useState<GeneralMember | null>(null);
 
   // Forgot password / lookup modal
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -188,6 +190,8 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
       if (defaultViewTab) {
         setMemberViewTab(defaultViewTab);
       }
+    } else {
+      setRegistrationSuccessMember(null);
     }
   }, [isOpen, defaultTab, defaultViewTab]);
 
@@ -402,14 +406,16 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
       void saveAuthenticatedMemberProfileToFirestore(firebaseUser, newMember);
     }
 
-    // Direct access to personal dashboard
+    // Direct access to personal dashboard + animated registration confirmation
     setCurrentMember(newMember);
+    setRegistrationSuccessMember(newMember);
+    setMemberViewTab('card');
     writeLocalStorageSafely('colash_active_member_session', newMember);
     onMemberSessionChange?.(newMember);
 
     onToast(
       'success',
-      language === 'bn' ? 'সদস্য আবেদন সফলভাবে জমা হয়েছে!' : 'Member Application Submitted!',
+      language === 'bn' ? 'সদস্য ও স্বেচ্ছাসেবী আবেদন সফলভাবে জমা হয়েছে!' : 'Volunteer & Member Registration Confirmed!',
       `${newMember.nameBn} (${newMember.membershipId}) - এডমিন অনুমোদনের পর ওয়েবসাইটে প্রদর্শিত হবে।`
     );
   };
@@ -525,6 +531,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
   // Logout current member
   const handleMemberLogout = () => {
     setCurrentMember(null);
+    setRegistrationSuccessMember(null);
     localStorage.removeItem('colash_active_member_session');
     onMemberSessionChange?.(null);
     onToast(
@@ -730,7 +737,12 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="print-modal-dialog bg-white dark:bg-[#0c1a24] max-w-3xl w-full rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-6 transition-all">
+      <motion.div
+        initial={{ opacity: 0, y: 40, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 25, mass: 0.9 }}
+        className="print-modal-dialog bg-white dark:bg-[#0c1a24] max-w-3xl w-full rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-6"
+      >
         
         {/* Top Header */}
         <div className="no-print bg-gradient-to-r from-[#102B3F] via-[#133e50] to-[#167D78] p-5 sm:p-6 text-white flex items-center justify-between">
@@ -761,6 +773,56 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
         {/* LOGGED IN MEMBER VIEW ("Just nijerta" - strict isolation) */}
         {currentMember ? (
           <div className="print-modal-scroll-body p-5 sm:p-7 space-y-6">
+            <AnimatePresence>
+              {registrationSuccessMember && (
+                <motion.div
+                  key={`reg-confirm-${registrationSuccessMember.id}`}
+                  initial={{ opacity: 0, y: 40, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -20, scale: 0.96 }}
+                  transition={{ type: 'spring', stiffness: 330, damping: 24, mass: 0.85 }}
+                  className="no-print p-5 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50 to-white dark:from-emerald-950/50 dark:via-[#0f292e] dark:to-[#0c1a24] border-2 border-emerald-300 dark:border-emerald-700/70 shadow-lg space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <motion.div
+                        initial={{ scale: 0.4, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: 'spring', stiffness: 420, damping: 18, delay: 0.08 }}
+                        className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0 shadow-xs"
+                      >
+                        <CheckCircle2 className="w-6 h-6" />
+                      </motion.div>
+                      <div className="space-y-1">
+                        <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                          {language === 'bn'
+                            ? 'স্বেচ্ছাসেবী ও সদস্য নিবন্ধন নিশ্চিত হয়েছে'
+                            : 'Volunteer & Member Registration Confirmed'}
+                        </span>
+                        <h4 className="text-base sm:text-lg font-black text-[#102B3F] dark:text-white leading-snug">
+                          {language === 'bn'
+                            ? `অভিনন্দন, ${registrationSuccessMember.nameBn}! আপনার আবেদন গৃহীত হয়েছে`
+                            : `Welcome, ${registrationSuccessMember.nameEn}! Your Registration Is Received`}
+                        </h4>
+                        <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed">
+                          {language === 'bn'
+                            ? `আপনার নির্ধারিত সদস্য আইডি: ${registrationSuccessMember.membershipId}। অ্যাডমিন নথিপত্র যাচাই করে অনুমোদন দেওয়ার পর ওয়েবসাইটে প্রকাশিত হবে।`
+                            : `Assigned ID: ${registrationSuccessMember.membershipId}. It will be published on the public directory once verified by an Admin.`}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRegistrationSuccessMember(null)}
+                      className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 cursor-pointer shrink-0"
+                      aria-label="Dismiss confirmation"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
             
             {/* Logged in User Bar */}
             <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
@@ -1888,7 +1950,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
           </div>
         )}
 
-      </div>
+      </motion.div>
     </div>
   );
 };

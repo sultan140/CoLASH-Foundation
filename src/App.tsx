@@ -51,13 +51,16 @@ import {
 } from './utils/statePersistence';
 import { useFirebase } from './contexts/FirebaseContext';
 import {
+  PUBLIC_SECTION_IDS,
+  ADMIN_VAULT_SECTION_IDS,
   fetchPublicContentFromFirestore,
   fetchAdminVaultFromFirestore,
   subscribeAuthenticatedFirestore,
-  syncBulkCollectionsToFirestore,
+  syncBulkCollectionsDetailed,
   primeWomensPublicCache,
   submitDonationRecordToFirestore,
   submitPublicApplicationToFirestore,
+  type BulkSyncResult,
 } from './utils/firestoreSync';
 import { exportAuditReport20252026 } from './utils/exportUtils';
 import { Flower2, Sparkles, Send, Layers, FileText, Download, ShieldCheck, BookOpen, ExternalLink, ArrowRight } from 'lucide-react';
@@ -124,6 +127,7 @@ export default function App() {
     isFirebaseAdmin,
     setCloudStatus,
     markCloudSynced,
+    refreshCloudInventory,
   } = useFirebase();
   const [language, setLanguage] = useState<Language>('bn');
   const [theme, setTheme] = useState<ThemeMode>('light');
@@ -460,20 +464,36 @@ export default function App() {
       .replace(/ইঞ্জি\.\s*আশরাফুল ইসলাম/g, 'Md. Ashraful Islam Sultan')
       .replace(/Engr\.\s*Ashraful Islam/g, 'Md. Ashraful Islam Sultan');
 
+  const normalizeAdminUsers = (list: AdminUser[]): AdminUser[] => {
+    const cleaned = list.map((u) =>
+      u.id === 'adm-super-1' || u.id === 'adm-super-2'
+        ? {
+            ...u,
+            name: sanitizeAdminName(u.name),
+            roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
+            roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
+          }
+        : u
+    );
+    const hasConfiguredPrimary = cleaned.some(
+      (u) => u.email.trim().toLowerCase() === 'ashrafulis2007@gmail.com'
+    );
+    if (!hasConfiguredPrimary) {
+      const primaryAdmin = INITIAL_ADMIN_USERS.find(
+        (u) => u.email.trim().toLowerCase() === 'ashrafulis2007@gmail.com'
+      );
+      if (primaryAdmin) {
+        return [primaryAdmin, ...cleaned];
+      }
+    }
+    return cleaned;
+  };
+
   // Admin & Permission Management States (Persisted in LocalStorage & server)
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => {
     const parsed = loadLocalState<AdminUser[]>('adminUsers', INITIAL_ADMIN_USERS);
     if (Array.isArray(parsed)) {
-      return parsed.map((u) =>
-        u.id === 'adm-super-1'
-          ? {
-              ...u,
-              name: sanitizeAdminName(u.name),
-              roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
-              roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
-            }
-          : u
-      );
+      return normalizeAdminUsers(parsed);
     }
     return INITIAL_ADMIN_USERS;
   });
@@ -916,16 +936,7 @@ export default function App() {
         break;
       case 'adminUsers':
         if (Array.isArray(rawValue)) {
-          const normalizedAdmins = (rawValue as AdminUser[]).map((u) =>
-            u.id === 'adm-super-1'
-              ? {
-                  ...u,
-                  name: sanitizeAdminName(u.name),
-                  roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
-                  roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
-                }
-              : u
-          );
+          const normalizedAdmins = normalizeAdminUsers(rawValue as AdminUser[]);
           setAdminUsers(normalizedAdmins);
           writeLocalStorageSafely(STORAGE_KEY_MAP.adminUsers, normalizedAdmins);
         }
@@ -985,17 +996,29 @@ export default function App() {
     auditLogs,
   });
 
-  const handleSyncAllToCloud = async (): Promise<boolean> => {
+  const handleSyncAllToCloud = async (): Promise<BulkSyncResult> => {
     setCloudStatus('syncing');
     try {
-      const ok = await syncBulkCollectionsToFirestore(buildFullCollectionsSnapshot());
-      if (ok) markCloudSynced();
-      else setCloudStatus('error');
-      return ok;
+      const result = await syncBulkCollectionsDetailed(
+        buildFullCollectionsSnapshot(),
+        firebaseUser
+      );
+      if (result.ok) {
+        markCloudSynced();
+      } else {
+        setCloudStatus('error');
+      }
+      await refreshCloudInventory(isFirebaseAdmin);
+      return result;
     } catch (err) {
       setCloudStatus('error');
       console.warn('Manual cloud sync error:', err);
-      return false;
+      return {
+        ok: false,
+        writtenCount: 0,
+        failedKeys: [],
+        errorMessage: err instanceof Error ? err.message : String(err),
+      };
     }
   };
 
@@ -1004,7 +1027,12 @@ export default function App() {
     let cancelled = false;
     (async () => {
       const [firestoreRes, serverCollections] = await Promise.all([
-        fetchPublicContentFromFirestore().catch(() => ({ publicState: {}, foundPublicCount: 0 })),
+        fetchPublicContentFromFirestore().catch(() => ({
+          publicState: {},
+          foundPublicCount: 0,
+          presentPublicIds: [],
+          missingPublicIds: [...PUBLIC_SECTION_IDS],
+        })),
         fetchServerState().catch(() => null),
       ]);
       if (cancelled) return;
@@ -1059,6 +1087,7 @@ export default function App() {
           applyHydratedKey(k as StateKey, v);
         }
       }
+      void refreshCloudInventory(false);
     })();
 
     return () => {
@@ -1068,7 +1097,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Attach authenticated Firestore listeners & seed Firestore on first Admin connection
+  // Attach authenticated Firestore listeners & seed all missing Firestore sections on Admin connection
   useEffect(() => {
     if (!authReady || !firebaseUser) return;
 
@@ -1087,7 +1116,7 @@ export default function App() {
           }
         }
 
-        // Load protected admin_vault or seed entire app into Firestore on initial setup
+        // Load existing cloud state first, then seed EVERY missing public_content & admin_vault doc
         try {
           const [pubRes, vaultRes] = await Promise.all([
             fetchPublicContentFromFirestore(),
@@ -1095,16 +1124,77 @@ export default function App() {
           ]);
           if (cancelled) return;
 
+          if (pubRes.foundPublicCount > 0) {
+            for (const [k, v] of Object.entries(pubRes.publicState)) {
+              applyHydratedKey(k as StateKey, v);
+            }
+          }
           if (vaultRes.foundVaultCount > 0) {
             for (const [k, v] of Object.entries(vaultRes.adminState)) {
               applyHydratedKey(k as StateKey, v);
             }
           }
-          if (pubRes.foundPublicCount === 0 || vaultRes.foundVaultCount === 0) {
-            setCloudStatus('syncing');
-            await syncBulkCollectionsToFirestore(buildFullCollectionsSnapshot());
+
+          const needsSeed =
+            pubRes.foundPublicCount < PUBLIC_SECTION_IDS.length ||
+            vaultRes.foundVaultCount < ADMIN_VAULT_SECTION_IDS.length;
+
+          if (needsSeed) {
+            const fullSnapshot = buildFullCollectionsSnapshot();
+            const missingSnapshot: Partial<Record<StateKey, unknown>> = {};
+
+            for (const pubId of pubRes.missingPublicIds) {
+              if (pubId === 'publicMembers') {
+                missingSnapshot.generalMembers =
+                  vaultRes.adminState.generalMembers ?? fullSnapshot.generalMembers;
+              } else if (pubId === 'publicDonations') {
+                missingSnapshot.donations =
+                  vaultRes.adminState.donations ?? fullSnapshot.donations;
+              } else if (pubId === 'womensPublic') {
+                missingSnapshot.womensTeamConfig = fullSnapshot.womensTeamConfig;
+                missingSnapshot.womensTeamActivities = fullSnapshot.womensTeamActivities;
+                missingSnapshot.womensTeamNotices = fullSnapshot.womensTeamNotices;
+              } else {
+                missingSnapshot[pubId as StateKey] = fullSnapshot[pubId as StateKey];
+              }
+            }
+
+            for (const vaultId of vaultRes.missingVaultIds) {
+              if (vaultId === 'generalMembersPrivate') {
+                missingSnapshot.generalMembers =
+                  vaultRes.adminState.generalMembers ?? fullSnapshot.generalMembers;
+              } else if (vaultId === 'donationsFull') {
+                missingSnapshot.donations =
+                  vaultRes.adminState.donations ?? fullSnapshot.donations;
+              } else if (vaultId === 'volunteersFull') {
+                missingSnapshot.volunteers = fullSnapshot.volunteers;
+              } else if (vaultId === 'publicApplicationsFull') {
+                missingSnapshot.publicApplications = fullSnapshot.publicApplications;
+              } else {
+                missingSnapshot[vaultId as StateKey] = fullSnapshot[vaultId as StateKey];
+              }
+            }
+
+            if (Object.keys(missingSnapshot).length > 0) {
+              setCloudStatus('syncing');
+              const seedResult = await syncBulkCollectionsDetailed(
+                missingSnapshot,
+                firebaseUser
+              );
+              if (!cancelled) {
+                if (seedResult.ok) markCloudSynced();
+                else setCloudStatus('error');
+              }
+            } else {
+              markCloudSynced();
+            }
+          } else {
+            markCloudSynced();
           }
-          markCloudSynced();
+
+          if (!cancelled) {
+            await refreshCloudInventory(true);
+          }
         } catch (err) {
           console.warn('Initial admin Firestore sync warning:', err);
           setCloudStatus('error');

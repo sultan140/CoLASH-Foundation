@@ -15,7 +15,17 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 export const FIRESTORE_DATABASE_ID = firebaseConfig.firestoreDatabaseId;
-export const SUPER_ADMIN_EMAIL = 'ashraful46475348@gmail.com';
+export const SUPER_ADMIN_EMAIL = 'ashrafulis2007@gmail.com';
+export const SUPER_ADMIN_EMAILS = [
+  'ashrafulis2007@gmail.com',
+  'ashraful46475348@gmail.com',
+] as const;
+
+export function isSuperAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return SUPER_ADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase() === normalized);
+}
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);

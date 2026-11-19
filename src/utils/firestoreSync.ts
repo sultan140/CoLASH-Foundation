@@ -11,10 +11,14 @@ import type { User } from 'firebase/auth';
 import {
   db,
   auth,
-  SUPER_ADMIN_EMAIL,
+  FIREBASE_PROJECT_ID,
+  FIRESTORE_DATABASE_ID,
+  isSuperAdminEmail,
   OperationType,
   handleFirestoreError,
 } from '../firebase';
+
+export const FIRESTORE_CONSOLE_DATA_URL = `https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/firestore/databases/${FIRESTORE_DATABASE_ID}/data`;
 import type {
   AdminUser,
   Donation,
@@ -79,11 +83,14 @@ export function stripUndefinedDeep<T>(input: T): T {
 
 function wrapPayloadForFirestore(rawValue: unknown): Record<string, unknown> {
   const cleaned = stripUndefinedDeep(rawValue);
-  let payload: Record<string, unknown> = Array.isArray(cleaned)
-    ? { items: cleaned }
-    : cleaned !== null && typeof cleaned === 'object'
-    ? (cleaned as Record<string, unknown>)
-    : { value: cleaned };
+  let payload: Record<string, unknown> =
+    cleaned === undefined
+      ? { value: null }
+      : Array.isArray(cleaned)
+      ? { items: cleaned }
+      : cleaned !== null && typeof cleaned === 'object'
+      ? (cleaned as Record<string, unknown>)
+      : { value: cleaned };
 
   // Enforce volumetric bounds (< 1MB Firestore document limit)
   try {
@@ -185,7 +192,7 @@ export async function ensureAdminRoleDocument(user: User): Promise<boolean> {
       return true;
     }
 
-    if (email === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    if (isSuperAdminEmail(email)) {
       await setDoc(doc(db, 'admins', user.uid), {
         uid: user.uid,
         email,
@@ -210,18 +217,18 @@ export async function ensureAdminRoleDocument(user: User): Promise<boolean> {
   } catch (err) {
     // Non-admins querying admin_invites or admins may simply not have admin access
     console.warn(`Admin verification check skipped for ${path}:`, err);
-    return email === SUPER_ADMIN_EMAIL.toLowerCase() && user.emailVerified;
+    return isSuperAdminEmail(email) && user.emailVerified;
   }
 }
 
 export async function syncAdminInvitesToFirestore(adminUsers: AdminUser[]): Promise<void> {
   const user = auth.currentUser;
-  if (!user || !user.emailVerified || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+  if (!user || !user.emailVerified || !isSuperAdminEmail(user.email)) {
     return;
   }
   for (const adm of adminUsers) {
     const email = adm.email?.trim().toLowerCase();
-    if (!email || email === SUPER_ADMIN_EMAIL.toLowerCase() || !adm.isActive) continue;
+    if (!email || isSuperAdminEmail(email) || !adm.isActive) continue;
     const path = `admin_invites/${email}`;
     try {
       await setDoc(doc(db, 'admin_invites', email), {
@@ -239,11 +246,14 @@ export async function syncAdminInvitesToFirestore(adminUsers: AdminUser[]): Prom
 export interface FetchedFirestoreState {
   publicState: Partial<Record<StateKey, unknown>>;
   foundPublicCount: number;
+  presentPublicIds: PublicSectionId[];
+  missingPublicIds: PublicSectionId[];
 }
 
 export async function fetchPublicContentFromFirestore(): Promise<FetchedFirestoreState> {
   const publicState: Partial<Record<StateKey, unknown>> = {};
-  let foundPublicCount = 0;
+  const presentPublicIds: PublicSectionId[] = [];
+  const missingPublicIds: PublicSectionId[] = [];
 
   await Promise.all(
     PUBLIC_SECTION_IDS.map(async (sectionId) => {
@@ -255,11 +265,17 @@ export async function fetchPublicContentFromFirestore(): Promise<FetchedFirestor
         } catch {
           snap = await getDoc(ref);
         }
-        if (!snap.exists()) return;
+        if (!snap.exists()) {
+          missingPublicIds.push(sectionId);
+          return;
+        }
         const data = snap.data();
-        if (!data || data.payload === undefined) return;
+        if (!data || data.payload === undefined) {
+          missingPublicIds.push(sectionId);
+          return;
+        }
         const unwrapped = unwrapFirestorePayload(data.payload);
-        foundPublicCount += 1;
+        presentPublicIds.push(sectionId);
 
         if (sectionId === 'publicMembers') {
           publicState.generalMembers = unwrapped;
@@ -278,32 +294,53 @@ export async function fetchPublicContentFromFirestore(): Promise<FetchedFirestor
           publicState[sectionId as StateKey] = unwrapped;
         }
       } catch (err) {
+        missingPublicIds.push(sectionId);
         console.warn(`Failed reading public_content/${sectionId}:`, err);
       }
     })
   );
 
-  return { publicState, foundPublicCount };
+  return {
+    publicState,
+    foundPublicCount: presentPublicIds.length,
+    presentPublicIds,
+    missingPublicIds,
+  };
 }
 
-export async function fetchAdminVaultFromFirestore(): Promise<{
+export interface FetchedAdminVaultState {
   adminState: Partial<Record<StateKey, unknown>>;
   foundVaultCount: number;
-}> {
+  presentVaultIds: AdminVaultSectionId[];
+  missingVaultIds: AdminVaultSectionId[];
+}
+
+export async function fetchAdminVaultFromFirestore(): Promise<FetchedAdminVaultState> {
   const adminState: Partial<Record<StateKey, unknown>> = {};
-  let foundVaultCount = 0;
+  const presentVaultIds: AdminVaultSectionId[] = [];
+  const missingVaultIds: AdminVaultSectionId[] = [];
 
   await Promise.all(
     ADMIN_VAULT_SECTION_IDS.map(async (sectionId) => {
-      const path = `admin_vault/${sectionId}`;
       const ref = doc(db, 'admin_vault', sectionId);
       try {
-        const snap = await getDoc(ref);
-        if (!snap.exists()) return;
+        let snap;
+        try {
+          snap = await getDocFromServer(ref);
+        } catch {
+          snap = await getDoc(ref);
+        }
+        if (!snap.exists()) {
+          missingVaultIds.push(sectionId);
+          return;
+        }
         const data = snap.data();
-        if (!data || data.payload === undefined) return;
+        if (!data || data.payload === undefined) {
+          missingVaultIds.push(sectionId);
+          return;
+        }
         const unwrapped = unwrapFirestorePayload(data.payload);
-        foundVaultCount += 1;
+        presentVaultIds.push(sectionId);
 
         if (sectionId === 'generalMembersPrivate') {
           adminState.generalMembers = unwrapped;
@@ -317,12 +354,58 @@ export async function fetchAdminVaultFromFirestore(): Promise<{
           adminState[sectionId as StateKey] = unwrapped;
         }
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, path);
+        missingVaultIds.push(sectionId);
+        console.warn(`Failed reading admin_vault/${sectionId}:`, error);
       }
     })
   );
 
-  return { adminState, foundVaultCount };
+  return {
+    adminState,
+    foundVaultCount: presentVaultIds.length,
+    presentVaultIds,
+    missingVaultIds,
+  };
+}
+
+export interface FirestoreCloudInventory {
+  projectId: string;
+  databaseId: string;
+  consoleUrl: string;
+  publicFound: number;
+  publicTotal: number;
+  missingPublicIds: PublicSectionId[];
+  vaultFound: number;
+  vaultTotal: number;
+  missingVaultIds: AdminVaultSectionId[];
+  checkedAt: number;
+}
+
+export async function fetchCloudInventorySummary(
+  includeVault: boolean
+): Promise<FirestoreCloudInventory> {
+  const pubRes = await fetchPublicContentFromFirestore();
+  const vaultRes = includeVault
+    ? await fetchAdminVaultFromFirestore()
+    : {
+        adminState: {},
+        foundVaultCount: 0,
+        presentVaultIds: [] as AdminVaultSectionId[],
+        missingVaultIds: [...ADMIN_VAULT_SECTION_IDS],
+      };
+
+  return {
+    projectId: FIREBASE_PROJECT_ID,
+    databaseId: FIRESTORE_DATABASE_ID,
+    consoleUrl: FIRESTORE_CONSOLE_DATA_URL,
+    publicFound: pubRes.foundPublicCount,
+    publicTotal: PUBLIC_SECTION_IDS.length,
+    missingPublicIds: pubRes.missingPublicIds,
+    vaultFound: vaultRes.foundVaultCount,
+    vaultTotal: ADMIN_VAULT_SECTION_IDS.length,
+    missingVaultIds: vaultRes.missingVaultIds,
+    checkedAt: Date.now(),
+  };
 }
 
 export function subscribeAuthenticatedFirestore(
@@ -420,9 +503,15 @@ export function primeWomensPublicCache(parts: Partial<typeof cachedWomensPublic>
   cachedWomensPublic = { ...cachedWomensPublic, ...parts };
 }
 
-async function writePublicSectionDoc(sectionId: PublicSectionId, rawValue: unknown): Promise<void> {
-  const user = auth.currentUser;
-  if (!user || !user.emailVerified) return;
+async function writePublicSectionDoc(
+  sectionId: PublicSectionId,
+  rawValue: unknown,
+  explicitUser?: User | null
+): Promise<void> {
+  const user = explicitUser || auth.currentUser;
+  if (!user || !user.emailVerified) {
+    throw new Error('Verified Google admin session required before writing to public_content');
+  }
   const path = `public_content/${sectionId}`;
   try {
     await setDoc(doc(db, 'public_content', sectionId), {
@@ -437,9 +526,15 @@ async function writePublicSectionDoc(sectionId: PublicSectionId, rawValue: unkno
   }
 }
 
-async function writeAdminVaultDoc(sectionId: AdminVaultSectionId, rawValue: unknown): Promise<void> {
-  const user = auth.currentUser;
-  if (!user || !user.emailVerified) return;
+async function writeAdminVaultDoc(
+  sectionId: AdminVaultSectionId,
+  rawValue: unknown,
+  explicitUser?: User | null
+): Promise<void> {
+  const user = explicitUser || auth.currentUser;
+  if (!user || !user.emailVerified) {
+    throw new Error('Verified Google admin session required before writing to admin_vault');
+  }
   const path = `admin_vault/${sectionId}`;
   try {
     await setDoc(doc(db, 'admin_vault', sectionId), {
@@ -454,8 +549,12 @@ async function writeAdminVaultDoc(sectionId: AdminVaultSectionId, rawValue: unkn
   }
 }
 
-export async function saveStateKeyToFirestore(key: StateKey, value: unknown): Promise<boolean> {
-  const user = auth.currentUser;
+export async function saveStateKeyToFirestore(
+  key: StateKey,
+  value: unknown,
+  explicitUser?: User | null
+): Promise<boolean> {
+  const user = explicitUser || auth.currentUser;
   if (!user || !user.emailVerified) return false;
 
   switch (key) {
@@ -468,14 +567,14 @@ export async function saveStateKeyToFirestore(key: StateKey, value: unknown): Pr
     case 'committeeTerms':
     case 'advisors':
     case 'financialRecords':
-      await writePublicSectionDoc(key, value);
+      await writePublicSectionDoc(key, value, user);
       return true;
 
     case 'generalMembers': {
       const members = Array.isArray(value) ? (value as GeneralMember[]) : [];
       await Promise.all([
-        writePublicSectionDoc('publicMembers', toPublicMembersPayload(members)),
-        writeAdminVaultDoc('generalMembersPrivate', members),
+        writePublicSectionDoc('publicMembers', toPublicMembersPayload(members), user),
+        writeAdminVaultDoc('generalMembersPrivate', members, user),
       ]);
       return true;
     }
@@ -483,8 +582,8 @@ export async function saveStateKeyToFirestore(key: StateKey, value: unknown): Pr
     case 'donations': {
       const donations = Array.isArray(value) ? (value as Donation[]) : [];
       await Promise.all([
-        writePublicSectionDoc('publicDonations', toPublicDonationsPayload(donations)),
-        writeAdminVaultDoc('donationsFull', donations),
+        writePublicSectionDoc('publicDonations', toPublicDonationsPayload(donations), user),
+        writeAdminVaultDoc('donationsFull', donations, user),
       ]);
       return true;
     }
@@ -493,22 +592,26 @@ export async function saveStateKeyToFirestore(key: StateKey, value: unknown): Pr
     case 'womensTeamActivities':
     case 'womensTeamNotices': {
       cachedWomensPublic = { ...cachedWomensPublic, [key]: value };
-      await writePublicSectionDoc('womensPublic', cachedWomensPublic);
+      await writePublicSectionDoc('womensPublic', cachedWomensPublic, user);
       return true;
     }
 
     case 'volunteers':
-      await writeAdminVaultDoc('volunteersFull', value);
+      await writeAdminVaultDoc('volunteersFull', value, user);
       return true;
 
     case 'publicApplications':
-      await writeAdminVaultDoc('publicApplicationsFull', value);
+      await writeAdminVaultDoc('publicApplicationsFull', value, user);
       return true;
 
     case 'adminUsers':
-      await writeAdminVaultDoc('adminUsers', value);
+      await writeAdminVaultDoc('adminUsers', value, user);
       if (Array.isArray(value)) {
-        await syncAdminInvitesToFirestore(value as AdminUser[]);
+        try {
+          await syncAdminInvitesToFirestore(value as AdminUser[]);
+        } catch (inviteErr) {
+          console.warn('Co-admin invite sync warning:', inviteErr);
+        }
       }
       return true;
 
@@ -516,7 +619,7 @@ export async function saveStateKeyToFirestore(key: StateKey, value: unknown): Pr
     case 'aiConversationLogs':
     case 'womensTeamMembers':
     case 'womensTeamDocuments':
-      await writeAdminVaultDoc(key, value);
+      await writeAdminVaultDoc(key, value, user);
       return true;
 
     default:
@@ -524,38 +627,117 @@ export async function saveStateKeyToFirestore(key: StateKey, value: unknown): Pr
   }
 }
 
-export async function syncBulkCollectionsToFirestore(
-  collections: Partial<Record<StateKey, unknown>>
-): Promise<boolean> {
-  const user = auth.currentUser;
-  if (!user || !user.emailVerified) return false;
+export interface BulkSyncResult {
+  ok: boolean;
+  writtenCount: number;
+  failedKeys: string[];
+  errorMessage?: string;
+}
 
-  if (collections.womensTeamConfig || collections.womensTeamActivities || collections.womensTeamNotices) {
-    primeWomensPublicCache({
-      ...(collections.womensTeamConfig ? { womensTeamConfig: collections.womensTeamConfig } : {}),
-      ...(collections.womensTeamActivities ? { womensTeamActivities: collections.womensTeamActivities } : {}),
-      ...(collections.womensTeamNotices ? { womensTeamNotices: collections.womensTeamNotices } : {}),
-    });
-  }
+let inFlightBulkSync: Promise<BulkSyncResult> | null = null;
 
-  const entries = Object.entries(collections) as [StateKey, unknown][];
-  let wroteWomensPublic = false;
-
-  for (const [key, value] of entries) {
-    if (
-      key === 'womensTeamConfig' ||
-      key === 'womensTeamActivities' ||
-      key === 'womensTeamNotices'
-    ) {
-      if (!wroteWomensPublic) {
-        wroteWomensPublic = true;
-        await saveStateKeyToFirestore(key, value);
-      }
-      continue;
+export async function syncBulkCollectionsDetailed(
+  collections: Partial<Record<StateKey, unknown>>,
+  explicitUser?: User | null
+): Promise<BulkSyncResult> {
+  const execute = async (): Promise<BulkSyncResult> => {
+    const user = explicitUser || auth.currentUser;
+    if (!user || !user.emailVerified) {
+      return {
+        ok: false,
+        writtenCount: 0,
+        failedKeys: Object.keys(collections),
+        errorMessage: 'Verified Google Admin sign-in is required to sync to Firestore.',
+      };
     }
-    await saveStateKeyToFirestore(key, value);
-  }
-  return true;
+
+    const adminVerified = await ensureAdminRoleDocument(user);
+    if (!adminVerified) {
+      return {
+        ok: false,
+        writtenCount: 0,
+        failedKeys: Object.keys(collections),
+        errorMessage: `Account (${user.email}) is not registered in Firestore admins.`,
+      };
+    }
+
+    if (
+      'womensTeamConfig' in collections ||
+      'womensTeamActivities' in collections ||
+      'womensTeamNotices' in collections
+    ) {
+      primeWomensPublicCache({
+        ...('womensTeamConfig' in collections ? { womensTeamConfig: collections.womensTeamConfig } : {}),
+        ...('womensTeamActivities' in collections
+          ? { womensTeamActivities: collections.womensTeamActivities }
+          : {}),
+        ...('womensTeamNotices' in collections ? { womensTeamNotices: collections.womensTeamNotices } : {}),
+      });
+    }
+
+    const entries = Object.entries(collections) as [StateKey, unknown][];
+    let wroteWomensPublic = false;
+    let writtenCount = 0;
+    const failedKeys: string[] = [];
+    let firstErrorMessage: string | undefined;
+
+    for (const [key, value] of entries) {
+      if (
+        key === 'womensTeamConfig' ||
+        key === 'womensTeamActivities' ||
+        key === 'womensTeamNotices'
+      ) {
+        if (!wroteWomensPublic) {
+          wroteWomensPublic = true;
+          try {
+            const ok = await saveStateKeyToFirestore(key, value, user);
+            if (ok) writtenCount += 1;
+          } catch (err) {
+            failedKeys.push('womensPublic');
+            if (!firstErrorMessage) {
+              firstErrorMessage = err instanceof Error ? err.message : String(err);
+            }
+          }
+        }
+        continue;
+      }
+
+      try {
+        const ok = await saveStateKeyToFirestore(key, value, user);
+        if (ok) writtenCount += 1;
+      } catch (err) {
+        failedKeys.push(key);
+        if (!firstErrorMessage) {
+          firstErrorMessage = err instanceof Error ? err.message : String(err);
+        }
+      }
+    }
+
+    return {
+      ok: failedKeys.length === 0 && writtenCount > 0,
+      writtenCount,
+      failedKeys,
+      errorMessage: firstErrorMessage,
+    };
+  };
+
+  // Serialize consecutive bulk sync runs so overlapping triggers never collide
+  const prev = inFlightBulkSync;
+  const current = (prev ? prev.catch(() => null).then(() => execute()) : execute()).finally(() => {
+    if (inFlightBulkSync === current) {
+      inFlightBulkSync = null;
+    }
+  });
+  inFlightBulkSync = current;
+  return current;
+}
+
+export async function syncBulkCollectionsToFirestore(
+  collections: Partial<Record<StateKey, unknown>>,
+  explicitUser?: User | null
+): Promise<boolean> {
+  const result = await syncBulkCollectionsDetailed(collections, explicitUser);
+  return result.ok;
 }
 
 export async function saveAuthenticatedMemberProfileToFirestore(

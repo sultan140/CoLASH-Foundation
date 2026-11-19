@@ -50,6 +50,8 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useFirebase } from '../contexts/FirebaseContext';
+import { FIRESTORE_DATABASE_ID } from '../firebase';
+import { FIRESTORE_CONSOLE_DATA_URL, type BulkSyncResult } from '../utils/firestoreSync';
 import {
   Donation,
   Volunteer,
@@ -137,7 +139,7 @@ interface AdminDashboardModalProps {
   onUpdatePaymentChannels?: (channels: PaymentChannel[]) => void;
   onDeleteDonation?: (id: string) => void;
   onRestoreBackup?: (parsed: any) => void;
-  onSyncAllToCloud?: () => Promise<boolean>;
+  onSyncAllToCloud?: () => Promise<BulkSyncResult | boolean>;
   initialTab?: string;
   onToast: (type: 'success' | 'error' | 'info', title: string, description?: string) => void;
 }
@@ -305,13 +307,18 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 }) => {
   const {
     firebaseUser,
+    firebaseConnected,
     isFirebaseAdmin,
     cloudStatus,
+    cloudInventory,
+    refreshCloudInventory,
+    reconnectFirebase,
     signInWithGoogle,
     signOutFirebase,
   } = useFirebase();
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
     | 'overview'
@@ -343,7 +350,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const [selectedDonationForReceipt, setSelectedDonationForReceipt] = useState<DonationRecord | null>(null);
 
   // Login form state
-  const [loginIdentifier, setLoginIdentifier] = useState('ashraful46475348@gmail.com');
+  const [loginIdentifier, setLoginIdentifier] = useState('ashrafulis2007@gmail.com');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPass, setShowLoginPass] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -351,7 +358,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   // Self-Service Forgot Password States
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotStep, setForgotStep] = useState<'identify' | 'verify' | 'new_password' | 'success'>('identify');
-  const [forgotIdentifier, setForgotIdentifier] = useState('ashraful46475348@gmail.com');
+  const [forgotIdentifier, setForgotIdentifier] = useState('ashrafulis2007@gmail.com');
   const [matchedForgotAdmin, setMatchedForgotAdmin] = useState<AdminUser | null>(null);
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [enteredOtp, setEnteredOtp] = useState('');
@@ -810,16 +817,12 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
         onLoginAdmin(matched);
       }
 
-      if (onSyncAllToCloud) {
-        await onSyncAllToCloud();
-      }
-
       onToast(
         'success',
         language === 'bn' ? 'Firebase Cloud Sync সংযুক্ত হয়েছে!' : 'Firebase Cloud Sync Connected!',
         language === 'bn'
-          ? `${user.email} দিয়ে সব তথ্য স্থায়ীভাবে ক্লাউডে সেভ হচ্ছে।`
-          : `Connected as ${user.email}. All changes now persist in Firestore.`
+          ? `${user.email} দিয়ে যুক্ত হয়েছে। সকল মিসিং সেকশন স্বয়ংক্রিয়ভাবে Firestore-এ সিঙ্ক হচ্ছে।`
+          : `Connected as ${user.email}. Missing Firestore sections are syncing automatically.`
       );
     } catch (err: any) {
       const msg = err?.message || '';
@@ -837,7 +840,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   // Self-Service Forgot Password Handlers
   const handleOpenForgotPassword = () => {
-    const defaultId = loginIdentifier || 'ashraful46475348@gmail.com';
+    const defaultId = loginIdentifier || 'ashrafulis2007@gmail.com';
     setForgotIdentifier(defaultId);
     setMatchedForgotAdmin(null);
     setGeneratedOtp('');
@@ -1327,7 +1330,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                           required
                           value={forgotIdentifier}
                           onChange={(e) => setForgotIdentifier(e.target.value)}
-                          placeholder="ashraful46475348@gmail.com"
+                          placeholder="ashrafulis2007@gmail.com"
                           className="w-full p-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#167D78]"
                         />
                       </div>
@@ -1547,7 +1550,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                 ? 'bg-emerald-50/90 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/60 text-emerald-900 dark:text-emerald-200'
                 : 'bg-amber-50/90 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200'
             }`}>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {firebaseUser && isFirebaseAdmin ? (
                   <>
                     <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -1555,8 +1558,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                       {language === 'bn' ? 'Firebase Firestore ক্লাউড সিঙ্ক সক্রিয়' : 'Firebase Firestore Cloud Sync Active'}
                     </span>
                     <span className="hidden md:inline text-[11px] opacity-80">
-                      ({firebaseUser.email}) {cloudStatus === 'syncing' ? '• সিঙ্ক হচ্ছে...' : cloudStatus === 'synced' ? '• সব পরিবর্তন ক্লাউডে সেভ হচ্ছে' : ''}
+                      ({firebaseUser.email}) {cloudStatus === 'syncing' ? '• সিঙ্ক হচ্ছে...' : cloudStatus === 'synced' ? '• সব পরিবর্তন ক্লাউডে সেভ হচ্ছে' : cloudStatus === 'error' ? '• সিঙ্ক সমস্যা হয়েছে' : ''}
                     </span>
+                    {cloudInventory && (
+                      <span className="px-2 py-0.5 rounded-md bg-white/80 dark:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-700 text-[10px] font-bold font-mono text-emerald-800 dark:text-emerald-200">
+                        Public {cloudInventory.publicFound}/{cloudInventory.publicTotal} • Vault {cloudInventory.vaultFound}/{cloudInventory.vaultTotal}
+                      </span>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1568,9 +1576,67 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                     </span>
                   </>
                 )}
+                {firebaseConnected !== null && (
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                    firebaseConnected
+                      ? 'bg-emerald-100/80 dark:bg-emerald-900/50 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-rose-100 dark:bg-rose-900/50 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200'
+                  }`}>
+                    {firebaseConnected
+                      ? language === 'bn'
+                        ? 'Firebase সংযুক্ত'
+                        : 'Firebase Online'
+                      : language === 'bn'
+                      ? 'অফলাইন'
+                      : 'Offline'}
+                  </span>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isReconnecting}
+                  onClick={async () => {
+                    setIsReconnecting(true);
+                    try {
+                      const ok = await reconnectFirebase();
+                      onToast(
+                        ok ? 'success' : 'error',
+                        ok
+                          ? language === 'bn'
+                            ? 'Firebase সংযোগ সক্রিয় রয়েছে!'
+                            : 'Firebase Connected!'
+                          : language === 'bn'
+                          ? 'Firebase সংযোগ ব্যর্থ'
+                          : 'Firebase Connection Failed',
+                        ok
+                          ? `Database: ${FIRESTORE_DATABASE_ID}`
+                          : language === 'bn'
+                          ? 'ইন্টারনেট বা Firebase কনফিগারেশন যাচাই করুন।'
+                          : 'Please check network or Firebase config.'
+                      );
+                    } finally {
+                      setIsReconnecting(false);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 hover:border-[#167D78] text-[#102B3F] dark:text-stone-200 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-60 transition-colors"
+                >
+                  <RefreshCw className={`w-3 h-3 text-[#167D78] ${isReconnecting ? 'animate-spin' : ''}`} />
+                  <span>{language === 'bn' ? 'সংযোগ যাচাই' : 'Verify Link'}</span>
+                </button>
+
+                <a
+                  href={FIRESTORE_CONSOLE_DATA_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`Database: ${FIRESTORE_DATABASE_ID}`}
+                  className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 hover:border-[#167D78] text-[#102B3F] dark:text-stone-200 font-bold text-[11px] inline-flex items-center gap-1 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3 text-[#167D78]" />
+                  <span>{language === 'bn' ? 'Firestore-এ দেখুন' : 'Open Firestore'}</span>
+                </a>
+
                 {firebaseUser && isFirebaseAdmin ? (
                   onSyncAllToCloud && (
                     <button
@@ -1579,14 +1645,36 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                       onClick={async () => {
                         setIsManualSyncing(true);
                         try {
-                          const ok = await onSyncAllToCloud();
+                          const res = await onSyncAllToCloud();
+                          const ok = typeof res === 'boolean' ? res : res.ok;
                           if (ok) {
+                            const countText =
+                              typeof res === 'object' && res.writtenCount
+                                ? language === 'bn'
+                                  ? `${res.writtenCount}টি ডাটা গ্রুপ (Public ১২ + Vault ৯ সেকশন) Firebase Firestore-এ সংরক্ষিত হয়েছে।`
+                                  : `Synced ${res.writtenCount} data groups to Firebase Firestore.`
+                                : language === 'bn'
+                                ? 'সকল তথ্য Firebase Firestore-এ সংরক্ষিত হয়েছে।'
+                                : 'All data persisted to Firebase Firestore.';
                             onToast(
                               'success',
                               language === 'bn' ? 'ক্লাউড সিঙ্ক সম্পন্ন!' : 'Cloud Sync Complete!',
-                              language === 'bn' ? 'সকল তথ্য Firebase Firestore-এ সংরক্ষিত হয়েছে।' : 'All data persisted to Firebase Firestore.'
+                              countText
+                            );
+                          } else {
+                            const errDetail =
+                              typeof res === 'object' && res.errorMessage
+                                ? res.errorMessage
+                                : language === 'bn'
+                                ? 'অনুগ্রহ করে অ্যাডমিন Google অ্যাকাউন্ট যাচাই করে আবার চেষ্টা করুন।'
+                                : 'Please verify Google admin login and try again.';
+                            onToast(
+                              'error',
+                              language === 'bn' ? 'ক্লাউড সিঙ্ক ব্যর্থ' : 'Cloud Sync Failed',
+                              errDetail
                             );
                           }
+                          await refreshCloudInventory(true);
                         } finally {
                           setIsManualSyncing(false);
                         }
@@ -3642,9 +3730,28 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                     </div>
 
                     <div className="p-4 rounded-xl bg-white dark:bg-[#0c1a24] border border-stone-200 dark:border-stone-800">
-                      <span className="text-stone-400 block text-[10px] uppercase font-bold">{language === 'bn' ? 'ডেলিভারি নেটওয়ার্ক' : 'Cloud State'}</span>
-                      <span className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">Realtime / Local + API</span>
-                      <p className="text-[11px] text-stone-500 mt-1">{language === 'bn' ? 'নিরবচ্ছিন্ন প্রাপ্যতা' : 'High Availability'}</p>
+                      <span className="text-stone-400 block text-[10px] uppercase font-bold">
+                        {language === 'bn' ? 'Firebase Firestore ক্লাউড' : 'Firebase Firestore Cloud'}
+                      </span>
+                      <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 font-mono block truncate">
+                        {cloudInventory
+                          ? `Public ${cloudInventory.publicFound}/${cloudInventory.publicTotal} • Vault ${cloudInventory.vaultFound}/${cloudInventory.vaultTotal}`
+                          : 'Firebase Firestore Ready'}
+                      </span>
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-stone-500">
+                        <span className="truncate" title={FIRESTORE_DATABASE_ID}>
+                          DB: {FIRESTORE_DATABASE_ID}
+                        </span>
+                        <a
+                          href={FIRESTORE_CONSOLE_DATA_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#167D78] font-bold hover:underline shrink-0 inline-flex items-center gap-1"
+                        >
+                          <span>Console</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </div>
                     </div>
                   </div>
 

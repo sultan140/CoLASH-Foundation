@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   FileText,
   Send,
@@ -325,19 +326,44 @@ export const PublicApplicationSection: React.FC<PublicApplicationSectionProps> =
         {/* ========================================================== */}
         {activeTab === 'submit' && (
           <div className="max-w-3xl mx-auto">
+            <AnimatePresence mode="wait">
             {submittedApp ? (
               /* SUBMISSION SUCCESS CARD WITH TRACKING ID */
-              <div className="bg-white dark:bg-[#0c1a24] rounded-2xl border border-emerald-300 dark:border-emerald-800/80 p-6 sm:p-8 shadow-xl text-center space-y-6 animate-fade-in">
-                <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
+              <motion.div
+                key={`submitted-${submittedApp.id}`}
+                initial={{ opacity: 0, y: 42, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.96 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 24, mass: 0.85 }}
+                className="bg-white dark:bg-[#0c1a24] rounded-2xl border border-emerald-300 dark:border-emerald-800/80 p-6 sm:p-8 shadow-xl text-center space-y-6"
+              >
+                <motion.div
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 18, delay: 0.08 }}
+                  className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-inner"
+                >
                   <CheckCircle2 className="w-9 h-9" />
-                </div>
+                </motion.div>
 
                 <div className="space-y-2">
                   <span className="text-xs uppercase font-extrabold text-emerald-600 tracking-wider">
-                    {language === 'bn' ? 'আবেদন সফলভাবে সংরক্ষিত হয়েছে' : 'Successfully Submitted'}
+                    {submittedApp.category === 'volunteer'
+                      ? language === 'bn'
+                        ? 'স্বেচ্ছাসেবক নিবন্ধন আবেদন নিশ্চিত হয়েছে'
+                        : 'Volunteer Registration Confirmed'
+                      : language === 'bn'
+                      ? 'আবেদন সফলভাবে সংরক্ষিত হয়েছে'
+                      : 'Successfully Submitted'}
                   </span>
                   <h3 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white">
-                    {language === 'bn' ? 'আপনার আবেদন ও বার্তা গ্রহণ করা হয়েছে' : 'Your Application Has Been Received'}
+                    {submittedApp.category === 'volunteer'
+                      ? language === 'bn'
+                        ? 'স্বেচ্ছাসেবক হিসেবে আপনার নিবন্ধন আবেদন গৃহীত হয়েছে'
+                        : 'Your Volunteer Registration Has Been Received'
+                      : language === 'bn'
+                      ? 'আপনার আবেদন ও বার্তা গ্রহণ করা হয়েছে'
+                      : 'Your Application Has Been Received'}
                   </h3>
                   <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 max-w-lg mx-auto">
                     {language === 'bn'
@@ -399,10 +425,17 @@ export const PublicApplicationSection: React.FC<PublicApplicationSectionProps> =
                     {language === 'bn' ? 'আরেকটি আবেদন পাঠান' : 'Submit Another Application'}
                   </button>
                 </div>
-              </div>
+              </motion.div>
             ) : (
               /* APPLICATION SUBMISSION FORM */
-              <div className="bg-white dark:bg-[#0c1a24] rounded-2xl border border-stone-200 dark:border-stone-800 p-6 sm:p-8 shadow-xl">
+              <motion.div
+                key="application-form"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white dark:bg-[#0c1a24] rounded-2xl border border-stone-200 dark:border-stone-800 p-6 sm:p-8 shadow-xl"
+              >
                 <form onSubmit={handleSubmit} className="space-y-6 text-xs sm:text-sm">
 
                   {/* Honeypot field (hidden from genuine users) */}
@@ -621,8 +654,9 @@ export const PublicApplicationSection: React.FC<PublicApplicationSectionProps> =
                   </div>
 
                 </form>
-              </div>
+              </motion.div>
             )}
+            </AnimatePresence>
           </div>
         )}
 

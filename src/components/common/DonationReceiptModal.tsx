@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
 import { Printer, Download, CheckCircle2, ShieldCheck, X, FileText, Heart, Building2 } from 'lucide-react';
 import { DonationRecord, Language } from '../../types';
@@ -41,8 +42,16 @@ export const DonationReceiptModal: React.FC<DonationReceiptModalProps> = ({
   };
 
   return (
-    <div className="print-modal-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
-      <div className="print-modal-dialog bg-white dark:bg-[#0c1a24] rounded-3xl max-w-xl w-full border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden relative">
+    <AnimatePresence>
+      <div className="print-modal-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+        <motion.div
+          key={donation.id}
+          initial={{ opacity: 0, y: 44, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 24, scale: 0.96 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 25, mass: 0.9 }}
+          className="print-modal-dialog bg-white dark:bg-[#0c1a24] rounded-3xl max-w-xl w-full border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden relative"
+        >
         
         {/* Top Control Bar */}
         <div className="no-print bg-stone-100 dark:bg-stone-900 px-5 py-3 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between">
@@ -195,7 +204,8 @@ export const DonationReceiptModal: React.FC<DonationReceiptModalProps> = ({
 
         </div>
 
-      </div>
+      </motion.div>
     </div>
+    </AnimatePresence>
   );
 };

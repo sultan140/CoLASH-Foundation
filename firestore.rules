@@ -36,7 +36,7 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'ashraful46475348@gmail.com';
+      return isVerifiedUser() && request.auth.token.email in ['ashraful46475348@gmail.com', 'ashrafulis2007@gmail.com'];
     }
 
     function isAdmin() {

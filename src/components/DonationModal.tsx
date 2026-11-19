@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, Heart, CheckCircle2, Copy, Check, Printer, Download, ArrowRight, ShieldCheck, Smartphone, Loader2, AlertCircle } from 'lucide-react';
 import { Project, Language, Donation, WebsiteCustomConfig, PaymentChannel } from '../types';
 import { INITIAL_PAYMENT_CHANNELS } from '../data/paymentChannels';
@@ -267,7 +268,12 @@ export const DonationModal: React.FC<DonationModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={`${step === 4 && createdReceipt ? 'print-modal-dialog ' : ''}bg-white dark:bg-[#0c1a24] max-w-xl w-full rounded-2xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-6 transition-all`}>
+      <motion.div
+        initial={{ opacity: 0, y: 40, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 26, mass: 0.9 }}
+        className={`${step === 4 && createdReceipt ? 'print-modal-dialog ' : ''}bg-white dark:bg-[#0c1a24] max-w-xl w-full rounded-2xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-6`}
+      >
         
         {/* Modal Header */}
         <div className="no-print bg-gradient-to-r from-[#102B3F] to-[#167D78] p-5 sm:p-6 text-white flex items-center justify-between">
@@ -751,13 +757,26 @@ export const DonationModal: React.FC<DonationModalProps> = ({
         )}
 
         {/* STEP 4: Official Verifiable Donation Receipt */}
+        <AnimatePresence mode="wait">
         {step === 4 && createdReceipt && (
-          <div className="p-6 space-y-6">
+          <motion.div
+            key="donation-success-step"
+            initial={{ opacity: 0, y: 48, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -24, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 330, damping: 24, mass: 0.85 }}
+            className="p-6 space-y-6"
+          >
             
             <div className="no-print text-center">
-              <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center mb-2">
+              <motion.div
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 18, delay: 0.08 }}
+                className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center mb-2"
+              >
                 <CheckCircle2 className="w-6 h-6" />
-              </div>
+              </motion.div>
               <h4 className="text-lg font-bold text-[#102B3F] dark:text-white">
                 {language === 'bn' ? 'অশেষ ধন্যবাদ! আপনার অনুদান গৃহীত হয়েছে' : 'Thank You! Donation Successfully Received'}
               </h4>
@@ -767,7 +786,13 @@ export const DonationModal: React.FC<DonationModalProps> = ({
             </div>
 
             {/* Official Printable Receipt Slip */}
-            <div id="official-receipt-print" className="print-donation-receipt p-5 bg-white dark:bg-stone-900 rounded-xl border border-stone-300 dark:border-stone-700 shadow-sm text-xs space-y-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 0.12 }}
+              id="official-receipt-print"
+              className="print-donation-receipt p-5 bg-white dark:bg-stone-900 rounded-xl border border-stone-300 dark:border-stone-700 shadow-sm text-xs space-y-4"
+            >
               
               <div className="flex items-start justify-between border-b border-stone-200 dark:border-stone-800 pb-3">
                 <div>
@@ -817,7 +842,7 @@ export const DonationModal: React.FC<DonationModalProps> = ({
                 <span className="italic">{language === 'bn' ? 'স্বাক্ষর: অর্থ ও নিরীক্ষা কমিটি' : 'Signed: Finance & Audit Committee'}</span>
               </div>
 
-            </div>
+            </motion.div>
 
             {/* Print, Download & Close Actions */}
             <div className="no-print grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -848,10 +873,11 @@ export const DonationModal: React.FC<DonationModalProps> = ({
               </button>
             </div>
 
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
-      </div>
+      </motion.div>
     </div>
   );
 };

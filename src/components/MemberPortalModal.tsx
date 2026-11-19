@@ -36,6 +36,8 @@ import { TRANSLATIONS } from '../data/translations';
 import { optimizeAndCompressImage } from '../utils/imageUtils';
 import { printMemberIdCard, downloadMemberIdCardPNG } from '../utils/idCardPrintUtils';
 import { writeLocalStorageSafely } from '../utils/statePersistence';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { saveAuthenticatedMemberProfileToFirestore } from '../utils/firestoreSync';
 
 interface MemberPortalModalProps {
   isOpen: boolean;
@@ -64,6 +66,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
   onMemberSessionChange,
   onToast
 }) => {
+  const { firebaseUser } = useFirebase();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>(defaultTab);
 
   // Active Member Session (Strictly isolated to "Just nijerta" - their own profile only)
@@ -395,6 +398,9 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
     if (onUpdateGeneralMembers) {
       onUpdateGeneralMembers(updated);
     }
+    if (firebaseUser?.emailVerified) {
+      void saveAuthenticatedMemberProfileToFirestore(firebaseUser, newMember);
+    }
 
     // Direct access to personal dashboard
     setCurrentMember(newMember);
@@ -436,6 +442,9 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
     const updatedList = generalMembers.map(m => (m.id === currentMember.id ? updatedMember : m));
     if (onUpdateGeneralMembers) {
       onUpdateGeneralMembers(updatedList);
+    }
+    if (firebaseUser?.emailVerified) {
+      void saveAuthenticatedMemberProfileToFirestore(firebaseUser, updatedMember);
     }
 
     setCurrentMember(updatedMember);

@@ -46,7 +46,19 @@ import {
   syncBulkStateToServer,
   fetchServerState,
   writeLocalStorageSafely,
+  setFirestoreAdminSyncEnabled,
+  setFirestoreSyncListener,
 } from './utils/statePersistence';
+import { useFirebase } from './contexts/FirebaseContext';
+import {
+  fetchPublicContentFromFirestore,
+  fetchAdminVaultFromFirestore,
+  subscribeAuthenticatedFirestore,
+  syncBulkCollectionsToFirestore,
+  primeWomensPublicCache,
+  submitDonationRecordToFirestore,
+  submitPublicApplicationToFirestore,
+} from './utils/firestoreSync';
 import { exportAuditReport20252026 } from './utils/exportUtils';
 import { Flower2, Sparkles, Send, Layers, FileText, Download, ShieldCheck, BookOpen, ExternalLink, ArrowRight } from 'lucide-react';
 
@@ -106,6 +118,13 @@ import {
 import { INITIAL_PAYMENT_CHANNELS, PAYMENT_CHANNELS_STORAGE_KEY } from './data/paymentChannels';
 
 export default function App() {
+  const {
+    firebaseUser,
+    authReady,
+    isFirebaseAdmin,
+    setCloudStatus,
+    markCloudSynced,
+  } = useFirebase();
   const [language, setLanguage] = useState<Language>('bn');
   const [theme, setTheme] = useState<ThemeMode>('light');
   const [activeSection, setActiveSection] = useState<string>('home');
@@ -763,87 +782,282 @@ export default function App() {
     websiteCustomConfig.fontFamily,
   ]);
 
-  // Hydrate all persisted application data from backend DB on mount & seed any pre-existing local edits
+  // Helper to apply any collection update (used by mount hydration & live Firestore onSnapshot)
+  const applyHydratedKey = (key: StateKey, rawValue: unknown) => {
+    if (rawValue === undefined || rawValue === null) return;
+    switch (key) {
+      case 'projects':
+        if (Array.isArray(rawValue)) {
+          setProjects(rawValue as Project[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.projects, rawValue);
+        }
+        break;
+      case 'donations':
+        if (Array.isArray(rawValue)) {
+          setDonations(rawValue as Donation[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.donations, rawValue);
+        }
+        break;
+      case 'volunteers':
+        if (Array.isArray(rawValue)) {
+          setVolunteers(rawValue as Volunteer[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.volunteers, rawValue);
+        }
+        break;
+      case 'notices':
+        if (Array.isArray(rawValue)) {
+          setNotices(rawValue as NoticeItem[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.notices, rawValue);
+        }
+        break;
+      case 'financialRecords':
+        if (Array.isArray(rawValue)) {
+          setFinancialRecords(rawValue as typeof FINANCIAL_RECORDS);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.financialRecords, rawValue);
+        }
+        break;
+      case 'paymentChannels':
+        if (Array.isArray(rawValue)) {
+          setPaymentChannels(rawValue as PaymentChannel[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.paymentChannels, rawValue);
+        }
+        break;
+      case 'publicApplications':
+        if (Array.isArray(rawValue)) {
+          setPublicApplications(rawValue as PublicApplication[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.publicApplications, rawValue);
+        }
+        break;
+      case 'aiConversationLogs':
+        if (Array.isArray(rawValue)) {
+          setAiConversationLogs(rawValue as AIConversationLog[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.aiConversationLogs, rawValue);
+        }
+        break;
+      case 'mapConfig':
+        if (typeof rawValue === 'object') {
+          setMapConfig(rawValue as MapConfig);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.mapConfig, rawValue);
+        }
+        break;
+      case 'websiteCustomConfig':
+        if (typeof rawValue === 'object') {
+          const merged = {
+            ...INITIAL_WEBSITE_CUSTOM_CONFIG,
+            ...(rawValue as Partial<WebsiteCustomConfig>),
+            logoUrl: (rawValue as Partial<WebsiteCustomConfig>)?.logoUrl || INITIAL_WEBSITE_CUSTOM_CONFIG.logoUrl,
+          };
+          setWebsiteCustomConfig(merged);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.websiteCustomConfig, merged);
+        }
+        break;
+      case 'committeeTerms':
+        if (Array.isArray(rawValue)) {
+          setCommitteeTerms(rawValue as CommitteeTerm[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.committeeTerms, rawValue);
+        }
+        break;
+      case 'advisors':
+        if (Array.isArray(rawValue)) {
+          setAdvisors(rawValue as AdvisoryCouncilMember[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.advisors, rawValue);
+        }
+        break;
+      case 'generalMembers':
+        if (Array.isArray(rawValue)) {
+          const normalized = (rawValue as GeneralMember[]).map((p) => {
+            const original = GENERAL_MEMBERS.find(m => m.id === p.id);
+            return {
+              ...p,
+              dateOfBirth: p.dateOfBirth || original?.dateOfBirth,
+              birthMonth: p.birthMonth || original?.birthMonth,
+              birthDay: p.birthDay || original?.birthDay,
+            };
+          });
+          setGeneralMembers(normalized);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.generalMembers, normalized);
+        }
+        break;
+      case 'aiKnowledgeBase':
+        if (Array.isArray(rawValue)) {
+          setAiKnowledgeBase(rawValue as AIKnowledgeItem[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.aiKnowledgeBase, rawValue);
+        }
+        break;
+      case 'womensTeamConfig':
+        if (typeof rawValue === 'object') {
+          setWomensTeamConfig(rawValue as WomensTeamConfig);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.womensTeamConfig, rawValue);
+        }
+        break;
+      case 'womensTeamMembers':
+        if (Array.isArray(rawValue)) {
+          setWomensTeamMembers(rawValue as WomensTeamMember[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.womensTeamMembers, rawValue);
+        }
+        break;
+      case 'womensTeamActivities':
+        if (Array.isArray(rawValue)) {
+          setWomensTeamActivities(rawValue as WomensTeamActivity[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.womensTeamActivities, rawValue);
+        }
+        break;
+      case 'womensTeamDocuments':
+        if (Array.isArray(rawValue)) {
+          setWomensTeamDocuments(rawValue as WomensTeamDocument[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.womensTeamDocuments, rawValue);
+        }
+        break;
+      case 'womensTeamNotices':
+        if (Array.isArray(rawValue)) {
+          setWomensTeamNotices(rawValue as WomensTeamNotice[]);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.womensTeamNotices, rawValue);
+        }
+        break;
+      case 'adminUsers':
+        if (Array.isArray(rawValue)) {
+          const normalizedAdmins = (rawValue as AdminUser[]).map((u) =>
+            u.id === 'adm-super-1'
+              ? {
+                  ...u,
+                  name: sanitizeAdminName(u.name),
+                  roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
+                  roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
+                }
+              : u
+          );
+          setAdminUsers(normalizedAdmins);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.adminUsers, normalizedAdmins);
+        }
+        break;
+      case 'auditLogs':
+        if (Array.isArray(rawValue)) {
+          const normalizedLogs = (rawValue as AdminAuditLog[]).map((l) => ({
+            ...l,
+            adminName: sanitizeAdminName(l.adminName),
+          }));
+          setAuditLogs(normalizedLogs);
+          writeLocalStorageSafely(STORAGE_KEY_MAP.auditLogs, normalizedLogs);
+        }
+        break;
+    }
+  };
+
+  // Keep Firestore sync permission flag & womensPublic cache updated
+  useEffect(() => {
+    setFirestoreAdminSyncEnabled(authReady && isFirebaseAdmin);
+    setFirestoreSyncListener((status) => {
+      if (status === 'synced') markCloudSynced();
+      else setCloudStatus(status);
+    });
+    return () => setFirestoreSyncListener(null);
+  }, [authReady, isFirebaseAdmin, markCloudSynced, setCloudStatus]);
+
+  useEffect(() => {
+    primeWomensPublicCache({
+      womensTeamConfig,
+      womensTeamActivities,
+      womensTeamNotices,
+    });
+  }, [womensTeamConfig, womensTeamActivities, womensTeamNotices]);
+
+  const buildFullCollectionsSnapshot = (): Partial<Record<StateKey, unknown>> => ({
+    projects,
+    donations,
+    volunteers,
+    notices,
+    financialRecords,
+    paymentChannels,
+    publicApplications,
+    aiConversationLogs,
+    mapConfig,
+    websiteCustomConfig,
+    committeeTerms,
+    advisors,
+    generalMembers,
+    aiKnowledgeBase,
+    womensTeamConfig,
+    womensTeamMembers,
+    womensTeamActivities,
+    womensTeamDocuments,
+    womensTeamNotices,
+    adminUsers,
+    auditLogs,
+  });
+
+  const handleSyncAllToCloud = async (): Promise<boolean> => {
+    setCloudStatus('syncing');
+    try {
+      const ok = await syncBulkCollectionsToFirestore(buildFullCollectionsSnapshot());
+      if (ok) markCloudSynced();
+      else setCloudStatus('error');
+      return ok;
+    } catch (err) {
+      setCloudStatus('error');
+      console.warn('Manual cloud sync error:', err);
+      return false;
+    }
+  };
+
+  // Hydrate all persisted application data from Firebase Firestore & optional backend API on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const serverCollections = await fetchServerState();
-      if (cancelled || !serverCollections) return;
+      const [firestoreRes, serverCollections] = await Promise.all([
+        fetchPublicContentFromFirestore().catch(() => ({ publicState: {}, foundPublicCount: 0 })),
+        fetchServerState().catch(() => null),
+      ]);
+      if (cancelled) return;
 
-      const toSeed: Partial<Record<StateKey, unknown>> = {};
-      const applyOrSeed = <T,>(
-        key: StateKey,
-        localCurrent: T,
-        setter: React.Dispatch<React.SetStateAction<T>>,
-        transform?: (val: any) => T
-      ) => {
-        const entry = serverCollections[key];
-        if (entry && entry.value !== undefined && entry.value !== null) {
-          const val = transform ? transform(entry.value) : (entry.value as T);
-          setter(val);
-          writeLocalStorageSafely(STORAGE_KEY_MAP[key], val);
-        } else if (hasLocalState(key)) {
-          toSeed[key] = localCurrent;
+      // 1. First apply optional Express server state if present
+      if (serverCollections) {
+        const toSeed: Partial<Record<StateKey, unknown>> = {};
+        const applyOrSeed = <T,>(
+          key: StateKey,
+          localCurrent: T,
+          transform?: (val: any) => T
+        ) => {
+          const entry = serverCollections[key];
+          if (entry && entry.value !== undefined && entry.value !== null) {
+            const val = transform ? transform(entry.value) : (entry.value as T);
+            applyHydratedKey(key, val);
+          } else if (hasLocalState(key)) {
+            toSeed[key] = localCurrent;
+          }
+        };
+
+        applyOrSeed('projects', projects);
+        applyOrSeed('donations', donations);
+        applyOrSeed('volunteers', volunteers);
+        applyOrSeed('notices', notices);
+        applyOrSeed('financialRecords', financialRecords);
+        applyOrSeed('paymentChannels', paymentChannels);
+        applyOrSeed('publicApplications', publicApplications);
+        applyOrSeed('aiConversationLogs', aiConversationLogs);
+        applyOrSeed('mapConfig', mapConfig);
+        applyOrSeed('websiteCustomConfig', websiteCustomConfig);
+        applyOrSeed('committeeTerms', committeeTerms);
+        applyOrSeed('advisors', advisors);
+        applyOrSeed('generalMembers', generalMembers);
+        applyOrSeed('aiKnowledgeBase', aiKnowledgeBase);
+        applyOrSeed('womensTeamConfig', womensTeamConfig);
+        applyOrSeed('womensTeamMembers', womensTeamMembers);
+        applyOrSeed('womensTeamActivities', womensTeamActivities);
+        applyOrSeed('womensTeamDocuments', womensTeamDocuments);
+        applyOrSeed('womensTeamNotices', womensTeamNotices);
+        applyOrSeed('adminUsers', adminUsers);
+        applyOrSeed('auditLogs', auditLogs);
+
+        if (Object.keys(toSeed).length > 0) {
+          void syncBulkStateToServer(toSeed);
         }
-      };
+      }
 
-      applyOrSeed('projects', projects, setProjects);
-      applyOrSeed('donations', donations, setDonations);
-      applyOrSeed('volunteers', volunteers, setVolunteers);
-      applyOrSeed('notices', notices, setNotices);
-      applyOrSeed('financialRecords', financialRecords, setFinancialRecords);
-      applyOrSeed('paymentChannels', paymentChannels, setPaymentChannels);
-      applyOrSeed('publicApplications', publicApplications, setPublicApplications);
-      applyOrSeed('aiConversationLogs', aiConversationLogs, setAiConversationLogs);
-      applyOrSeed('mapConfig', mapConfig, setMapConfig);
-      applyOrSeed('websiteCustomConfig', websiteCustomConfig, setWebsiteCustomConfig, (cfg) => ({
-        ...INITIAL_WEBSITE_CUSTOM_CONFIG,
-        ...cfg,
-        logoUrl: cfg?.logoUrl || INITIAL_WEBSITE_CUSTOM_CONFIG.logoUrl,
-      }));
-      applyOrSeed('committeeTerms', committeeTerms, setCommitteeTerms);
-      applyOrSeed('advisors', advisors, setAdvisors);
-      applyOrSeed('generalMembers', generalMembers, setGeneralMembers, (list) =>
-        Array.isArray(list)
-          ? list.map((p: GeneralMember) => {
-              const original = GENERAL_MEMBERS.find(m => m.id === p.id);
-              return {
-                ...p,
-                dateOfBirth: p.dateOfBirth || original?.dateOfBirth,
-                birthMonth: p.birthMonth || original?.birthMonth,
-                birthDay: p.birthDay || original?.birthDay,
-              };
-            })
-          : GENERAL_MEMBERS
-      );
-      applyOrSeed('aiKnowledgeBase', aiKnowledgeBase, setAiKnowledgeBase);
-      applyOrSeed('womensTeamConfig', womensTeamConfig, setWomensTeamConfig);
-      applyOrSeed('womensTeamMembers', womensTeamMembers, setWomensTeamMembers);
-      applyOrSeed('womensTeamActivities', womensTeamActivities, setWomensTeamActivities);
-      applyOrSeed('womensTeamDocuments', womensTeamDocuments, setWomensTeamDocuments);
-      applyOrSeed('womensTeamNotices', womensTeamNotices, setWomensTeamNotices);
-      applyOrSeed('adminUsers', adminUsers, setAdminUsers, (list) =>
-        Array.isArray(list)
-          ? list.map((u: AdminUser) =>
-              u.id === 'adm-super-1'
-                ? {
-                    ...u,
-                    name: sanitizeAdminName(u.name),
-                    roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
-                    roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
-                  }
-                : u
-            )
-          : INITIAL_ADMIN_USERS
-      );
-      applyOrSeed('auditLogs', auditLogs, setAuditLogs, (list) =>
-        Array.isArray(list)
-          ? list.map((l: AdminAuditLog) => ({ ...l, adminName: sanitizeAdminName(l.adminName) }))
-          : INITIAL_AUDIT_LOGS
-      );
-
-      if (Object.keys(toSeed).length > 0) {
-        void syncBulkStateToServer(toSeed);
+      // 2. Overlay authoritative Firebase Firestore public content (works everywhere, including Cloudflare Pages)
+      if (firestoreRes.foundPublicCount > 0) {
+        for (const [k, v] of Object.entries(firestoreRes.publicState)) {
+          applyHydratedKey(k as StateKey, v);
+        }
       }
     })();
 
@@ -853,6 +1067,66 @@ export default function App() {
     // Run once on initial mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Attach authenticated Firestore listeners & seed Firestore on first Admin connection
+  useEffect(() => {
+    if (!authReady || !firebaseUser) return;
+
+    let cancelled = false;
+    (async () => {
+      if (isFirebaseAdmin) {
+        // Auto-match Firebase Google Admin into AdminDashboard session if not already logged in
+        const userEmail = firebaseUser.email?.toLowerCase();
+        if (userEmail && !currentAdmin) {
+          const matchedAdmin = adminUsers.find(
+            (u) => u.email.toLowerCase() === userEmail && u.isActive
+          );
+          if (matchedAdmin) {
+            setCurrentAdmin(matchedAdmin);
+            writeLocalStorageSafely('colash_current_admin', matchedAdmin);
+          }
+        }
+
+        // Load protected admin_vault or seed entire app into Firestore on initial setup
+        try {
+          const [pubRes, vaultRes] = await Promise.all([
+            fetchPublicContentFromFirestore(),
+            fetchAdminVaultFromFirestore(),
+          ]);
+          if (cancelled) return;
+
+          if (vaultRes.foundVaultCount > 0) {
+            for (const [k, v] of Object.entries(vaultRes.adminState)) {
+              applyHydratedKey(k as StateKey, v);
+            }
+          }
+          if (pubRes.foundPublicCount === 0 || vaultRes.foundVaultCount === 0) {
+            setCloudStatus('syncing');
+            await syncBulkCollectionsToFirestore(buildFullCollectionsSnapshot());
+          }
+          markCloudSynced();
+        } catch (err) {
+          console.warn('Initial admin Firestore sync warning:', err);
+          setCloudStatus('error');
+        }
+      }
+    })();
+
+    const unsubscribe = subscribeAuthenticatedFirestore(
+      firebaseUser,
+      isFirebaseAdmin,
+      (key, value) => {
+        applyHydratedKey(key, value);
+        markCloudSynced();
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, firebaseUser, isFirebaseAdmin]);
 
   // Persistent Authentication Guard & Rehydration Hook
   useEffect(() => {
@@ -1086,6 +1360,9 @@ export default function App() {
       persistState('donations', next);
       return next;
     });
+    if (firebaseUser?.emailVerified) {
+      void submitDonationRecordToFirestore(firebaseUser, newDonation);
+    }
 
     // Update matching project target if applicable
     if (newDonation.purpose && newDonation.purpose !== 'general') {
@@ -1296,11 +1573,14 @@ export default function App() {
       persistState('publicApplications', updated);
       return updated;
     });
+    if (firebaseUser?.emailVerified) {
+      void submitPublicApplicationToFirestore(firebaseUser, newApp);
+    }
     fetch('/api/applications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newApp)
-    }).catch(err => console.warn(err));
+    }).catch(() => {});
   };
 
   const handleUpdateApplication = (updatedApp: PublicApplication) => {
@@ -2061,6 +2341,7 @@ export default function App() {
         onUpdatePublicApplication={handleUpdateApplication}
         aiConversationLogs={aiConversationLogs}
         onRestoreBackup={handleRestoreBackup}
+        onSyncAllToCloud={handleSyncAllToCloud}
         initialTab={adminInitialTab}
         onToast={addToast}
       />

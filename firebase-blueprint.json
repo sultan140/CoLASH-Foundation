@@ -1,0 +1,331 @@
+{
+  "entities": {
+    "PublicContentSection": {
+      "title": "PublicContentSection",
+      "description": "Public non-PII website content and configuration sections keyed by allowlisted sectionId.",
+      "type": "object",
+      "properties": {
+        "sectionId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Allowlisted public section identifier."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public"],
+          "description": "Explicit visibility flag confirming no PII is stored."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Native structured data object or wrapped items array for the public section."
+        },
+        "updatedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": ["sectionId", "visibility", "payload", "updatedByUid", "updatedAt"]
+    },
+    "AdminVaultSection": {
+      "title": "AdminVaultSection",
+      "description": "Protected administrative datasets containing PII, audit trails, AI logs, or admin rosters.",
+      "type": "object",
+      "properties": {
+        "sectionId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["admin_only"]
+        },
+        "payload": {
+          "type": "object"
+        },
+        "updatedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["sectionId", "visibility", "payload", "updatedByUid", "updatedAt"]
+    },
+    "AdminRoleRecord": {
+      "title": "AdminRoleRecord",
+      "description": "Verified Firebase Auth UIDs granted administrative access.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "co_admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "AdminInvite": {
+      "title": "AdminInvite",
+      "description": "Allowlisted Co-Admin email addresses invited by Super Admin.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "enum": ["co_admin"]
+        },
+        "invitedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "role", "invitedByUid", "createdAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Non-PII user session account metadata.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["member"]
+        },
+        "membershipId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII record for an authenticated user (email, phone, address, blood group).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "district": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "bloodGroup": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "DonationSubmission": {
+      "title": "DonationSubmission",
+      "description": "Authenticated donor contribution submission for admin verification.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "receiptNumber": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "donorName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "donorEmail": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "donorPhone": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "amount": {
+          "type": "number"
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["bkash", "nagad", "rocket", "card"]
+        },
+        "transactionId": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "verified", "rejected"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerUid", "receiptNumber", "donorName", "amount", "purpose", "paymentMethod", "transactionId", "status", "createdAt", "updatedAt"]
+    },
+    "PublicApplicationSubmission": {
+      "title": "PublicApplicationSubmission",
+      "description": "Aid or volunteer application submitted by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackingId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "applicantName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "under_review", "approved", "rejected"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerUid", "trackingId", "applicantName", "phone", "category", "details", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/public_content/{sectionId}": {
+      "schema": { "$ref": "#/entities/PublicContentSection" },
+      "description": "Allowlisted non-PII public website state sections readable by ID and writable only by verified admins."
+    },
+    "/admin_vault/{sectionId}": {
+      "schema": { "$ref": "#/entities/AdminVaultSection" },
+      "description": "Protected administrative datasets containing PII, audit logs, and admin configurations."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRoleRecord" },
+      "description": "Verified Firebase Admin role documents keyed by Firebase Auth UID."
+    },
+    "/admin_invites/{email}": {
+      "schema": { "$ref": "#/entities/AdminInvite" },
+      "description": "Invited Co-Admin emails managed exclusively by Super Admin."
+    },
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Authenticated user profile metadata isolated from PII."
+    },
+    "/users/{uid}/private/info": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Owner-only and admin-only PII profile details."
+    },
+    "/donations/{donationId}": {
+      "schema": { "$ref": "#/entities/DonationSubmission" },
+      "description": "Individual donation submissions scoped to ownerUid and Admins."
+    },
+    "/applications/{applicationId}": {
+      "schema": { "$ref": "#/entities/PublicApplicationSubmission" },
+      "description": "Individual public aid/volunteer applications scoped to ownerUid and Admins."
+    }
+  }
+}

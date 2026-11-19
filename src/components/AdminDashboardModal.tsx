@@ -44,8 +44,12 @@ import {
   History,
   Smartphone,
   Printer,
-  Download
+  Download,
+  Cloud,
+  CloudOff,
+  RefreshCw
 } from 'lucide-react';
+import { useFirebase } from '../contexts/FirebaseContext';
 import {
   Donation,
   Volunteer,
@@ -133,6 +137,7 @@ interface AdminDashboardModalProps {
   onUpdatePaymentChannels?: (channels: PaymentChannel[]) => void;
   onDeleteDonation?: (id: string) => void;
   onRestoreBackup?: (parsed: any) => void;
+  onSyncAllToCloud?: () => Promise<boolean>;
   initialTab?: string;
   onToast: (type: 'success' | 'error' | 'info', title: string, description?: string) => void;
 }
@@ -294,9 +299,19 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   onUpdatePaymentChannels,
   onDeleteDonation,
   onRestoreBackup,
+  onSyncAllToCloud,
   initialTab,
   onToast
 }) => {
+  const {
+    firebaseUser,
+    isFirebaseAdmin,
+    cloudStatus,
+    signInWithGoogle,
+    signOutFirebase,
+  } = useFirebase();
+  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
     | 'overview'
@@ -772,6 +787,54 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     );
   };
 
+  const handleGoogleAdminAuth = async (alreadyLoggedInAdmin?: AdminUser | null) => {
+    setIsConnectingGoogle(true);
+    setLoginError(null);
+    try {
+      const user = await signInWithGoogle();
+      const email = user.email?.toLowerCase() || '';
+      const matched = adminUsers.find(
+        (u) => u.email.toLowerCase() === email && u.isActive
+      );
+
+      if (!alreadyLoggedInAdmin) {
+        if (!matched) {
+          await signOutFirebase();
+          setLoginError(
+            language === 'bn'
+              ? `এই Google অ্যাকাউন্ট (${user.email}) অনুমোদিত অ্যাডমিন তালিকায় নেই।`
+              : `This Google account (${user.email}) is not authorized in Admin Users.`
+          );
+          return;
+        }
+        onLoginAdmin(matched);
+      }
+
+      if (onSyncAllToCloud) {
+        await onSyncAllToCloud();
+      }
+
+      onToast(
+        'success',
+        language === 'bn' ? 'Firebase Cloud Sync সংযুক্ত হয়েছে!' : 'Firebase Cloud Sync Connected!',
+        language === 'bn'
+          ? `${user.email} দিয়ে সব তথ্য স্থায়ীভাবে ক্লাউডে সেভ হচ্ছে।`
+          : `Connected as ${user.email}. All changes now persist in Firestore.`
+      );
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (!msg.includes('popup-closed-by-user')) {
+        setLoginError(
+          language === 'bn'
+            ? 'Google সাইন-ইন সম্পন্ন করা যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন।'
+            : 'Google Sign-In failed. Please try again.'
+        );
+      }
+    } finally {
+      setIsConnectingGoogle(false);
+    }
+  };
+
   // Self-Service Forgot Password Handlers
   const handleOpenForgotPassword = () => {
     const defaultId = loginIdentifier || 'ashraful46475348@gmail.com';
@@ -1195,6 +1258,28 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                   <ShieldCheck className="w-4 h-4 text-[#D6F36A]" />
                   <span>{language === 'bn' ? 'নিরাপদ প্রবেশ (Log In)' : 'Secure Log In'}</span>
                 </button>
+
+                <div className="relative flex items-center py-2">
+                  <div className="flex-grow border-t border-stone-200 dark:border-stone-700" />
+                  <span className="px-2 text-[10px] font-bold uppercase text-stone-400">
+                    {language === 'bn' ? 'অথবা (Cloud Sync সহ)' : 'OR (With Cloud Sync)'}
+                  </span>
+                  <div className="flex-grow border-t border-stone-200 dark:border-stone-700" />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isConnectingGoogle}
+                  onClick={() => void handleGoogleAdminAuth(null)}
+                  className="w-full py-2.5 px-4 bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-800 dark:text-white border border-stone-300 dark:border-stone-600 font-bold rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Cloud className="w-4 h-4 text-[#167D78] dark:text-[#D6F36A]" />
+                  <span>
+                    {isConnectingGoogle
+                      ? (language === 'bn' ? 'Google সংযোগ হচ্ছে...' : 'Connecting Google...')
+                      : (language === 'bn' ? 'Google দিয়ে লগইন (Firebase Cloud Save)' : 'Sign in with Google (Firebase Cloud Save)')}
+                  </span>
+                </button>
               </form>
             </div>
 
@@ -1456,6 +1541,80 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
         ) : (
           /* IF LOGGED IN: SHOW FULL MULTI-TAB DASHBOARD WITH PERMISSION ENFORCEMENT */
           <>
+            {/* FIREBASE FIRESTORE CLOUD SYNC STATUS BAR */}
+            <div className={`px-4 sm:px-6 py-2 border-b text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 ${
+              firebaseUser && isFirebaseAdmin
+                ? 'bg-emerald-50/90 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/60 text-emerald-900 dark:text-emerald-200'
+                : 'bg-amber-50/90 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                {firebaseUser && isFirebaseAdmin ? (
+                  <>
+                    <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="font-bold">
+                      {language === 'bn' ? 'Firebase Firestore ক্লাউড সিঙ্ক সক্রিয়' : 'Firebase Firestore Cloud Sync Active'}
+                    </span>
+                    <span className="hidden md:inline text-[11px] opacity-80">
+                      ({firebaseUser.email}) {cloudStatus === 'syncing' ? '• সিঙ্ক হচ্ছে...' : cloudStatus === 'synced' ? '• সব পরিবর্তন ক্লাউডে সেভ হচ্ছে' : ''}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <CloudOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="font-semibold">
+                      {language === 'bn'
+                        ? 'সব পরিবর্তন স্থায়ীভাবে Firebase ক্লাউডে সেভ করতে Google অ্যাকাউন্ট সংযুক্ত করুন:'
+                        : 'Connect Google account to permanently sync all changes to Firebase Cloud:'}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {firebaseUser && isFirebaseAdmin ? (
+                  onSyncAllToCloud && (
+                    <button
+                      type="button"
+                      disabled={isManualSyncing}
+                      onClick={async () => {
+                        setIsManualSyncing(true);
+                        try {
+                          const ok = await onSyncAllToCloud();
+                          if (ok) {
+                            onToast(
+                              'success',
+                              language === 'bn' ? 'ক্লাউড সিঙ্ক সম্পন্ন!' : 'Cloud Sync Complete!',
+                              language === 'bn' ? 'সকল তথ্য Firebase Firestore-এ সংরক্ষিত হয়েছে।' : 'All data persisted to Firebase Firestore.'
+                            );
+                          }
+                        } finally {
+                          setIsManualSyncing(false);
+                        }
+                      }}
+                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isManualSyncing ? 'animate-spin' : ''}`} />
+                      <span>{language === 'bn' ? 'সব তথ্য ক্লাউডে সেভ করুন' : 'Sync All to Cloud'}</span>
+                    </button>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isConnectingGoogle}
+                    onClick={() => void handleGoogleAdminAuth(currentAdmin)}
+                    className="px-3 py-1 rounded-lg bg-[#167D78] hover:bg-[#102B3F] text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  >
+                    <Cloud className="w-3.5 h-3.5 text-[#D6F36A]" />
+                    <span>
+                      {isConnectingGoogle
+                        ? (language === 'bn' ? 'সংযোগ হচ্ছে...' : 'Connecting...')
+                        : (language === 'bn' ? 'Google দিয়ে ক্লাউড সেভ চালু করুন' : 'Connect Google Cloud Save')}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* TAB NAVIGATION */}
             <div className="px-4 sm:px-6 bg-stone-50 dark:bg-stone-900 border-b border-stone-200 dark:border-stone-800 flex gap-1 sm:gap-2 overflow-x-auto text-xs font-semibold shrink-0">
               <button

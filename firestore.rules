@@ -1,0 +1,375 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Reusable Hardened Security Primitives
+    // ------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    function isSuperAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'ashraful46475348@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isAllowedPublicSection(sectionId) {
+      return sectionId in [
+        'websiteCustomConfig',
+        'mapConfig',
+        'paymentChannels',
+        'aiKnowledgeBase',
+        'projects',
+        'notices',
+        'committeeTerms',
+        'advisors',
+        'financialRecords',
+        'publicMembers',
+        'publicDonations',
+        'womensPublic'
+      ];
+    }
+
+    function isAllowedAdminVaultSection(sectionId) {
+      return sectionId in [
+        'adminUsers',
+        'auditLogs',
+        'aiConversationLogs',
+        'womensTeamMembers',
+        'womensTeamDocuments',
+        'generalMembersPrivate',
+        'donationsFull',
+        'volunteersFull',
+        'publicApplicationsFull'
+      ];
+    }
+
+    // ------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // ------------------------------------------------------------------
+    function isValidPublicContentSection(data, sectionId) {
+      return data.keys().hasAll(['sectionId', 'visibility', 'payload', 'updatedByUid', 'updatedAt'])
+        && data.keys().hasOnly(['sectionId', 'visibility', 'payload', 'updatedByUid', 'updatedAt'])
+        && data.sectionId is string
+        && data.sectionId == sectionId
+        && data.sectionId.size() <= 64
+        && isAllowedPublicSection(sectionId)
+        && data.visibility == 'public'
+        && data.payload is map
+        && isValidId(data.updatedByUid)
+        && data.updatedByUid == request.auth.uid
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAdminVaultSection(data, sectionId) {
+      return data.keys().hasAll(['sectionId', 'visibility', 'payload', 'updatedByUid', 'updatedAt'])
+        && data.keys().hasOnly(['sectionId', 'visibility', 'payload', 'updatedByUid', 'updatedAt'])
+        && data.sectionId is string
+        && data.sectionId == sectionId
+        && data.sectionId.size() <= 64
+        && isAllowedAdminVaultSection(sectionId)
+        && data.visibility == 'admin_only'
+        && data.payload is map
+        && isValidId(data.updatedByUid)
+        && data.updatedByUid == request.auth.uid
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAdminRoleRecord(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'role', 'createdAt'])
+        && isValidId(data.uid)
+        && data.uid == uid
+        && data.email is string
+        && data.email.size() >= 3
+        && data.email.size() <= 200
+        && data.role in ['super_admin', 'co_admin']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAdminInvite(data, emailId) {
+      return data.keys().hasAll(['email', 'role', 'invitedByUid', 'createdAt'])
+        && data.keys().hasOnly(['email', 'role', 'invitedByUid', 'createdAt'])
+        && data.email is string
+        && data.email == emailId
+        && data.email.size() >= 3
+        && data.email.size() <= 200
+        && data.role == 'co_admin'
+        && isValidId(data.invitedByUid)
+        && data.invitedByUid == request.auth.uid
+        && data.createdAt is timestamp
+        && data.createdAt == request.time;
+    }
+
+    function isValidUserAccount(data, uid) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'role', 'membershipId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == uid
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 120
+        && data.role == 'member'
+        && (!('membershipId' in data) || (data.membershipId is string && data.membershipId.size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidUserPrivateInfo(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'phone', 'address', 'district', 'bloodGroup', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == uid
+        && data.email is string
+        && data.email.size() >= 3
+        && data.email.size() <= 200
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 300))
+        && (!('district' in data) || (data.district is string && data.district.size() <= 80))
+        && (!('bloodGroup' in data) || (data.bloodGroup is string && data.bloodGroup.size() <= 16))
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidDonationSubmission(data, donationId) {
+      return data.keys().hasAll(['id', 'ownerUid', 'receiptNumber', 'donorName', 'amount', 'purpose', 'paymentMethod', 'transactionId', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerUid', 'receiptNumber', 'donorName', 'donorEmail', 'donorPhone', 'amount', 'purpose', 'paymentMethod', 'transactionId', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == donationId
+        && isValidId(data.ownerUid)
+        && data.receiptNumber is string && data.receiptNumber.size() >= 2 && data.receiptNumber.size() <= 64
+        && data.donorName is string && data.donorName.size() >= 1 && data.donorName.size() <= 120
+        && (!('donorEmail' in data) || (data.donorEmail is string && data.donorEmail.size() <= 200))
+        && (!('donorPhone' in data) || (data.donorPhone is string && data.donorPhone.size() <= 32))
+        && data.amount is number && data.amount > 0 && data.amount <= 100000000
+        && data.purpose is string && data.purpose.size() >= 1 && data.purpose.size() <= 64
+        && data.paymentMethod in ['bkash', 'nagad', 'rocket', 'card']
+        && data.transactionId is string && data.transactionId.size() >= 2 && data.transactionId.size() <= 100
+        && data.status in ['pending', 'verified', 'rejected']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidPublicApplication(data, applicationId) {
+      return data.keys().hasAll(['id', 'ownerUid', 'trackingId', 'applicantName', 'phone', 'category', 'details', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerUid', 'trackingId', 'applicantName', 'phone', 'category', 'details', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == applicationId
+        && isValidId(data.ownerUid)
+        && data.trackingId is string && data.trackingId.size() >= 3 && data.trackingId.size() <= 64
+        && data.applicantName is string && data.applicantName.size() >= 1 && data.applicantName.size() <= 120
+        && data.phone is string && data.phone.size() >= 5 && data.phone.size() <= 32
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 64
+        && data.details is string && data.details.size() >= 1 && data.details.size() <= 2000
+        && data.status in ['pending', 'under_review', 'approved', 'rejected']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    // ------------------------------------------------------------------
+    // Startup Connection Health Check Document
+    // ------------------------------------------------------------------
+    match /test/connection {
+      allow get: if isValidId('connection');
+    }
+
+    // ------------------------------------------------------------------
+    // 1. Public Non-PII Website Content (Readable by ID, Admin-Only Write)
+    // ------------------------------------------------------------------
+    match /public_content/{sectionId} {
+      allow get: if isValidId(sectionId) && isAllowedPublicSection(sectionId);
+      allow list: if isSuperAdmin();
+      allow create: if isAdmin()
+        && isValidId(sectionId)
+        && isValidPublicContentSection(incoming(), sectionId);
+      allow update: if isAdmin()
+        && isValidId(sectionId)
+        && isValidPublicContentSection(incoming(), sectionId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['payload', 'updatedByUid', 'updatedAt']);
+      allow delete: if isSuperAdmin() && isValidId(sectionId);
+    }
+
+    // ------------------------------------------------------------------
+    // 2. Admin Vault (Strict Admin-Only PII & Sensitive Operations)
+    // ------------------------------------------------------------------
+    match /admin_vault/{sectionId} {
+      allow get: if isAdmin() && isValidId(sectionId) && isAllowedAdminVaultSection(sectionId);
+      allow list: if isSuperAdmin();
+      allow create: if isAdmin()
+        && isValidId(sectionId)
+        && isValidAdminVaultSection(incoming(), sectionId);
+      allow update: if isAdmin()
+        && isValidId(sectionId)
+        && isValidAdminVaultSection(incoming(), sectionId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['payload', 'updatedByUid', 'updatedAt']);
+      allow delete: if isSuperAdmin() && isValidId(sectionId);
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Admin Role & Co-Admin Invite Registry
+    // ------------------------------------------------------------------
+    match /admins/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isSuperAdmin();
+      allow create: if isValidId(uid)
+        && isValidAdminRoleRecord(incoming(), uid)
+        && incoming().createdAt == request.time
+        && (
+          (isSuperAdmin() && (uid == request.auth.uid ? incoming().role == 'super_admin' : incoming().role == 'co_admin'))
+          || (
+            isOwner(uid)
+            && incoming().email == request.auth.token.email
+            && incoming().role == 'co_admin'
+            && exists(/databases/$(database)/documents/admin_invites/$(request.auth.token.email))
+          )
+        );
+      allow update: if isSuperAdmin()
+        && isValidId(uid)
+        && isValidAdminRoleRecord(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'email']);
+      allow delete: if isSuperAdmin() && isValidId(uid);
+    }
+
+    match /admin_invites/{emailId} {
+      allow get: if isSuperAdmin() || (isVerifiedUser() && request.auth.token.email == emailId);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin() && isValidAdminInvite(incoming(), emailId);
+      allow update: if isSuperAdmin()
+        && isValidAdminInvite(incoming(), emailId)
+        && incoming().email == existing().email
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'invitedByUid', 'createdAt']);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // 4. User Profiles (Split Collection PII Isolation)
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isSuperAdmin();
+      allow create: if isOwner(uid)
+        && isValidId(uid)
+        && isValidUserAccount(incoming(), uid)
+        && incoming().createdAt == request.time;
+      allow update: if (isOwner(uid) || isAdmin())
+        && isValidId(uid)
+        && isValidUserAccount(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().role == existing().role
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'membershipId', 'updatedAt']);
+      allow delete: if isSuperAdmin() && isValidId(uid);
+
+      match /private/info {
+        allow get: if isOwner(uid) || isAdmin();
+        allow create: if isOwner(uid)
+          && isValidId(uid)
+          && isValidUserPrivateInfo(incoming(), uid)
+          && incoming().email == request.auth.token.email;
+        allow update: if (isOwner(uid) || isAdmin())
+          && isValidId(uid)
+          && isValidUserPrivateInfo(incoming(), uid)
+          && incoming().uid == existing().uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'address', 'district', 'bloodGroup', 'updatedAt']);
+        allow delete: if isSuperAdmin() && isValidId(uid);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Donation Submissions (Owner-Scoped + Admin Verification)
+    // ------------------------------------------------------------------
+    match /donations/{donationId} {
+      allow get: if isValidId(donationId) && (isAdmin() || (isVerifiedUser() && existing().ownerUid == request.auth.uid));
+      allow list: if isSuperAdmin() || (isVerifiedUser() && existing().ownerUid == request.auth.uid);
+      allow create: if isVerifiedUser()
+        && isValidId(donationId)
+        && isValidDonationSubmission(incoming(), donationId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(donationId)
+        && isValidDonationSubmission(incoming(), donationId)
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().status == 'pending'
+            && incoming().status == 'pending'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['donorPhone', 'purpose', 'transactionId', 'updatedAt'])
+          )
+        );
+      allow delete: if isSuperAdmin() && isValidId(donationId);
+    }
+
+    // ------------------------------------------------------------------
+    // 6. Public Aid & Volunteer Applications (Owner-Scoped + Admin Review)
+    // ------------------------------------------------------------------
+    match /applications/{applicationId} {
+      allow get: if isValidId(applicationId) && (isAdmin() || (isVerifiedUser() && existing().ownerUid == request.auth.uid));
+      allow list: if isSuperAdmin() || (isVerifiedUser() && existing().ownerUid == request.auth.uid);
+      allow create: if isVerifiedUser()
+        && isValidId(applicationId)
+        && isValidPublicApplication(incoming(), applicationId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(applicationId)
+        && isValidPublicApplication(incoming(), applicationId)
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().status == 'pending'
+            && incoming().status == 'pending'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'details', 'updatedAt'])
+          )
+        );
+      allow delete: if isSuperAdmin() && isValidId(applicationId);
+    }
+  }
+}

@@ -1,4 +1,8 @@
 import { PAYMENT_CHANNELS_STORAGE_KEY } from '../data/paymentChannels';
+import {
+  saveStateKeyToFirestore,
+  syncBulkCollectionsToFirestore,
+} from './firestoreSync';
 
 export type StateKey =
   | 'projects'
@@ -107,7 +111,20 @@ export function writeLocalStorageSafely(
   }
 }
 
-// Per-key serialized sync queue so rapid consecutive updates never race on disk
+let firestoreAdminSyncEnabled = false;
+let firestoreSyncListener: ((status: 'syncing' | 'synced' | 'error') => void) | null = null;
+
+export function setFirestoreAdminSyncEnabled(enabled: boolean) {
+  firestoreAdminSyncEnabled = enabled;
+}
+
+export function setFirestoreSyncListener(
+  listener: ((status: 'syncing' | 'synced' | 'error') => void) | null
+) {
+  firestoreSyncListener = listener;
+}
+
+// Per-key serialized sync queue so rapid consecutive updates never race on disk or Firestore
 const pendingValues = new Map<StateKey, unknown>();
 const inFlightKeys = new Set<StateKey>();
 
@@ -121,19 +138,30 @@ async function flushKeyToServer(key: StateKey): Promise<boolean> {
     while (pendingValues.has(key)) {
       const value = pendingValues.get(key);
       pendingValues.delete(key);
+
+      if (firestoreAdminSyncEnabled) {
+        firestoreSyncListener?.('syncing');
+        try {
+          await saveStateKeyToFirestore(key, value);
+          firestoreSyncListener?.('synced');
+        } catch (fsErr) {
+          lastOk = false;
+          firestoreSyncListener?.('error');
+          console.warn(`Firestore sync failed for key "${key}":`, fsErr);
+        }
+      }
+
       try {
         const res = await fetch(`/api/state/${encodeURIComponent(key)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value }),
         });
-        if (!res.ok) {
+        if (!res.ok && res.status !== 404) {
           lastOk = false;
-          console.warn(`Server state sync returned ${res.status} for key "${key}"`);
         }
-      } catch (err) {
-        lastOk = false;
-        console.warn(`Server state sync network error for key "${key}":`, err);
+      } catch {
+        // Static hosts (e.g. Cloudflare Pages) do not run Express /api/state
       }
     }
   } finally {
@@ -162,17 +190,28 @@ export function persistState<T>(
 export async function syncBulkStateToServer(
   collections: Partial<Record<StateKey, unknown>>
 ): Promise<boolean> {
+  let ok = false;
+  if (firestoreAdminSyncEnabled) {
+    firestoreSyncListener?.('syncing');
+    try {
+      ok = await syncBulkCollectionsToFirestore(collections);
+      firestoreSyncListener?.('synced');
+    } catch (err) {
+      firestoreSyncListener?.('error');
+      console.warn('Firestore bulk sync failed:', err);
+    }
+  }
   try {
     const res = await fetch('/api/state/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ collections }),
     });
-    return res.ok;
-  } catch (err) {
-    console.warn('Bulk server state sync failed:', err);
-    return false;
+    if (res.ok) ok = true;
+  } catch {
+    // Ignore when running on static host without Express server
   }
+  return ok;
 }
 
 export async function fetchServerState(): Promise<
@@ -181,13 +220,14 @@ export async function fetchServerState(): Promise<
   try {
     const res = await fetch('/api/state', { cache: 'no-store' });
     if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
     const data = await res.json();
     if (data && data.collections && typeof data.collections === 'object') {
       return data.collections;
     }
     return null;
-  } catch (err) {
-    console.warn('Failed to fetch persisted server state:', err);
+  } catch {
     return null;
   }
 }

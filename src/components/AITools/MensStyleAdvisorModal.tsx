@@ -55,7 +55,10 @@ export const MensStyleAdvisorModal: React.FC<MensStyleAdvisorModalProps> = ({
       };
     }
     try {
-      const saved = localStorage.getItem('colash_current_member') || localStorage.getItem('colash_current_admin');
+      const saved =
+        localStorage.getItem('colash_active_member_session') ||
+        localStorage.getItem('colash_current_member') ||
+        localStorage.getItem('colash_current_admin');
       if (saved) {
         const parsed = JSON.parse(saved);
         return {

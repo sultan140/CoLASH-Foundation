@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Send, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
-import { Language } from '../types';
+import { Language, WebsiteCustomConfig } from '../types';
 import { TRANSLATIONS } from '../data/translations';
 import { MagneticButton } from './common/MagneticButton';
 
 interface ContactSectionProps {
   language: Language;
+  websiteConfig?: WebsiteCustomConfig;
   onToast: (type: 'success' | 'error' | 'info', title: string, description?: string) => void;
 }
 
-export const ContactSection: React.FC<ContactSectionProps> = ({ language, onToast }) => {
+export const ContactSection: React.FC<ContactSectionProps> = ({ language, websiteConfig, onToast }) => {
   const t = TRANSLATIONS[language];
 
   const [name, setName] = useState('');
@@ -86,7 +87,11 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ language, onToas
                 <MapPin className="w-5 h-5 text-[#167D78] shrink-0 mt-0.5" />
                 <div>
                   <h4 className="font-bold text-[#102B3F] dark:text-white mb-0.5">{t.headOffice}</h4>
-                  <p className="text-stone-500 leading-relaxed">{t.address}</p>
+                  <p className="text-stone-500 leading-relaxed">
+                    {websiteConfig
+                      ? (language === 'bn' ? websiteConfig.addressBn : websiteConfig.addressEn) || t.address
+                      : t.address}
+                  </p>
                 </div>
               </div>
 
@@ -95,8 +100,8 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ language, onToas
                 <div>
                   <h4 className="font-bold text-[#102B3F] dark:text-white mb-0.5">{t.hotline}</h4>
                   <div className="font-mono text-stone-700 dark:text-stone-300 space-y-0.5 text-xs">
-                    <a href="tel:+8801646475348" className="hover:text-[#167D78] dark:hover:text-[#D6F36A] transition-colors block font-bold">
-                      +880 1646-475348 (01646-475348)
+                    <a href={`tel:${(websiteConfig?.hotline || '01646-475348').replace(/[^0-9+]/g, '')}`} className="hover:text-[#167D78] dark:hover:text-[#D6F36A] transition-colors block font-bold">
+                      +880 {(websiteConfig?.hotline || '01646-475348').replace(/^0/, '')} ({websiteConfig?.hotline || '01646-475348'})
                     </a>
                     <a href="tel:+8801308241288" className="hover:text-[#167D78] dark:hover:text-[#D6F36A] transition-colors block">
                       +880 1308-241288
@@ -111,8 +116,8 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ language, onToas
                 <div>
                   <h4 className="font-bold text-[#102B3F] dark:text-white mb-0.5">{t.emailUs}</h4>
                   <div className="font-mono text-stone-600 dark:text-stone-400 space-y-0.5 text-xs">
-                    <a href="mailto:ashraful46475348@gmail.com" className="hover:text-[#167D78] dark:hover:text-[#D6F36A] transition-colors block font-semibold">
-                      ashraful46475348@gmail.com
+                    <a href={`mailto:${websiteConfig?.contactEmail || 'ashraful46475348@gmail.com'}`} className="hover:text-[#167D78] dark:hover:text-[#D6F36A] transition-colors block font-semibold">
+                      {websiteConfig?.contactEmail || 'ashraful46475348@gmail.com'}
                     </a>
                     <a href="mailto:info@colash.org" className="hover:text-[#167D78] dark:hover:text-[#D6F36A] transition-colors block text-stone-400">
                       info@colash.org
@@ -128,7 +133,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ language, onToas
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <a
-                    href="https://www.facebook.com/CoLASHFoundation"
+                    href={websiteConfig?.facebookUrl || "https://www.facebook.com/CoLASHFoundation"}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-3 rounded-xl bg-white dark:bg-[#0c1a24] border border-stone-200 dark:border-stone-800 hover:border-[#1877F2] flex items-center gap-2.5 text-xs font-bold text-stone-800 dark:text-stone-100 hover:text-[#1877F2] transition-colors shadow-xs group"
@@ -145,7 +150,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ language, onToas
                   </a>
 
                   <a
-                    href="https://www.instagram.com/colashfoundation"
+                    href={websiteConfig?.instagramUrl || "https://www.instagram.com/colashfoundation"}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-3 rounded-xl bg-white dark:bg-[#0c1a24] border border-stone-200 dark:border-stone-800 hover:border-[#E4405F] flex items-center gap-2.5 text-xs font-bold text-stone-800 dark:text-stone-100 hover:text-[#E4405F] transition-colors shadow-xs group"

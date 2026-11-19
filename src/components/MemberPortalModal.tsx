@@ -35,6 +35,7 @@ import { GeneralMember, Volunteer, Language, NoticeItem, MemberPositionHistory }
 import { TRANSLATIONS } from '../data/translations';
 import { optimizeAndCompressImage } from '../utils/imageUtils';
 import { printMemberIdCard, downloadMemberIdCardPNG } from '../utils/idCardPrintUtils';
+import { writeLocalStorageSafely } from '../utils/statePersistence';
 
 interface MemberPortalModalProps {
   isOpen: boolean;
@@ -171,7 +172,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
       const fresh = generalMembers.find(m => m.id === currentMember.id || m.membershipId === currentMember.membershipId);
       if (fresh) {
         setCurrentMember(fresh);
-        localStorage.setItem('colash_active_member_session', JSON.stringify(fresh));
+        writeLocalStorageSafely('colash_active_member_session', fresh);
         onMemberSessionChange?.(fresh);
       }
     }
@@ -288,7 +289,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
     }
 
     setCurrentMember(found);
-    localStorage.setItem('colash_active_member_session', JSON.stringify(found));
+    writeLocalStorageSafely('colash_active_member_session', found);
     onMemberSessionChange?.(found);
     setLoginQuery('');
     setLoginPassword('');
@@ -397,7 +398,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
 
     // Direct access to personal dashboard
     setCurrentMember(newMember);
-    localStorage.setItem('colash_active_member_session', JSON.stringify(newMember));
+    writeLocalStorageSafely('colash_active_member_session', newMember);
     onMemberSessionChange?.(newMember);
 
     onToast(
@@ -438,7 +439,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
     }
 
     setCurrentMember(updatedMember);
-    localStorage.setItem('colash_active_member_session', JSON.stringify(updatedMember));
+    writeLocalStorageSafely('colash_active_member_session', updatedMember);
     onMemberSessionChange?.(updatedMember);
 
     onToast(
@@ -482,7 +483,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
         onUpdateGeneralMembers(updatedList);
       }
       setCurrentMember(updatedMember);
-      localStorage.setItem('colash_active_member_session', JSON.stringify(updatedMember));
+      writeLocalStorageSafely('colash_active_member_session', updatedMember);
       onMemberSessionChange?.(updatedMember);
       onToast('success', language === 'bn' ? 'ইতিহাসে পদবি যুক্ত হয়েছে' : 'Past Position Added');
       setNewHistPositionBn('');
@@ -507,7 +508,7 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
         onUpdateGeneralMembers(updatedList);
       }
       setCurrentMember(updatedMember);
-      localStorage.setItem('colash_active_member_session', JSON.stringify(updatedMember));
+      writeLocalStorageSafely('colash_active_member_session', updatedMember);
       onToast('info', language === 'bn' ? 'পদবি মুছে ফেলা হয়েছে' : 'Position Removed');
     }
   };
@@ -1374,7 +1375,8 @@ export const MemberPortalModal: React.FC<MemberPortalModalProps> = ({
                           const list = generalMembers.map(m => m.id === currentMember.id ? updated : m);
                           if (onUpdateGeneralMembers) onUpdateGeneralMembers(list);
                           setCurrentMember(updated);
-                          localStorage.setItem('colash_active_member_session', JSON.stringify(updated));
+                          writeLocalStorageSafely('colash_active_member_session', updated);
+                          onMemberSessionChange?.(updated);
                           onToast('success', language === 'bn' ? 'সংশোধিত নথি জমা হয়েছে' : 'Re-uploaded successfully');
                         }}
                         className="hidden"

@@ -67,7 +67,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 truncate min-w-0">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#D6F36A] shrink-0"></span>
-            <span className="font-medium truncate">{t.heroBadge}</span>
+            <span className="font-medium truncate">
+              {websiteConfig
+                ? (language === 'bn' ? websiteConfig.heroBadgeBn : websiteConfig.heroBadgeEn) || t.heroBadge
+                : t.heroBadge}
+            </span>
             <span className="hidden md:inline text-white/30">|</span>
             <a
               href={`tel:${(websiteConfig?.hotline || '01646-475348').replace(/[^0-9+]/g, '')}`}
@@ -80,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Social Links */}
             <div className="hidden sm:flex items-center gap-2 pr-1 border-r border-white/20">
               <a
-                href="https://www.facebook.com/CoLASHFoundation"
+                href={websiteConfig?.facebookUrl || "https://www.facebook.com/CoLASHFoundation"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-stone-300 hover:text-[#1877F2] transition-colors p-0.5"
@@ -92,7 +96,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </svg>
               </a>
               <a
-                href="https://www.instagram.com/colashfoundation"
+                href={websiteConfig?.instagramUrl || "https://www.instagram.com/colashfoundation"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-stone-300 hover:text-[#E4405F] transition-colors p-0.5"

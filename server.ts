@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
@@ -14,11 +15,106 @@ const PORT =
   (envPort && envPort !== nginxPort ? envPort : 3000);
 const isProd = process.env.NODE_ENV === 'production';
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '50mb' }));
 
-// In-memory store for AI Conversation Logs and Public Applications (synchronizes with client localStorage)
-let serverAiLogs: any[] = [];
-let serverApplications: any[] = [];
+// -----------------------------------------------------------------------
+// Durable Disk-Backed Persistence Store (Survives refreshes & restarts)
+// -----------------------------------------------------------------------
+const DATA_DIR = path.resolve(import.meta.dirname, 'data');
+const DB_FILE_PATH = path.join(DATA_DIR, 'colash-db.json');
+
+const ALLOWED_STATE_KEYS = new Set([
+  'projects',
+  'donations',
+  'volunteers',
+  'notices',
+  'financialRecords',
+  'paymentChannels',
+  'publicApplications',
+  'aiConversationLogs',
+  'mapConfig',
+  'websiteCustomConfig',
+  'committeeTerms',
+  'advisors',
+  'generalMembers',
+  'aiKnowledgeBase',
+  'womensTeamConfig',
+  'womensTeamMembers',
+  'womensTeamActivities',
+  'womensTeamDocuments',
+  'womensTeamNotices',
+  'adminUsers',
+  'auditLogs',
+]);
+
+interface PersistedCollectionEntry {
+  value: any;
+  updatedAt: number;
+}
+
+interface PersistedDatabase {
+  schemaVersion: number;
+  updatedAt: string;
+  collections: Record<string, PersistedCollectionEntry>;
+}
+
+function loadDatabaseFromDisk(): PersistedDatabase {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(DB_FILE_PATH)) {
+      const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && parsed.collections) {
+        return parsed as PersistedDatabase;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to read persisted database file, starting fresh:', err);
+  }
+  return {
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    collections: {},
+  };
+}
+
+let dbState: PersistedDatabase = loadDatabaseFromDisk();
+let writeChain: Promise<void> = Promise.resolve();
+
+function scheduleDiskWrite(): Promise<void> {
+  const snapshotJson = JSON.stringify(dbState);
+  writeChain = writeChain
+    .then(async () => {
+      await fs.promises.mkdir(DATA_DIR, { recursive: true });
+      const tmpPath = `${DB_FILE_PATH}.tmp`;
+      await fs.promises.writeFile(tmpPath, snapshotJson, 'utf-8');
+      await fs.promises.rename(tmpPath, DB_FILE_PATH);
+    })
+    .catch((err) => {
+      console.error('Disk persistence write failed:', err);
+    });
+  return writeChain;
+}
+
+function setPersistedCollection(key: string, value: any): number {
+  const now = Date.now();
+  dbState.collections[key] = { value, updatedAt: now };
+  dbState.updatedAt = new Date(now).toISOString();
+  void scheduleDiskWrite();
+  return now;
+}
+
+function getPersistedCollection<T>(key: string, fallback: T): T {
+  const entry = dbState.collections[key];
+  return entry !== undefined ? (entry.value as T) : fallback;
+}
+
+// Persistent stores backed by disk DB
+let serverAiLogs: any[] = getPersistedCollection<any[]>('aiConversationLogs', []);
+let serverApplications: any[] = getPersistedCollection<any[]>('publicApplications', []);
+let serverWebsiteConfig: any = getPersistedCollection<any>('websiteCustomConfig', null);
 
 // Initialize Google Gen AI client with telemetry user-agent if API key is present
 let aiClient: GoogleGenAI | null = null;
@@ -545,14 +641,15 @@ If topic is 'lingerie', give scientific band + cup sizing, 80% band support & fi
 // 4. AI Conversation Logs Endpoints (Sync & Analytics)
 // -----------------------------------------------------------------------
 app.get('/api/ai/logs', (_req: Request, res: Response) => {
+  serverAiLogs = getPersistedCollection<any[]>('aiConversationLogs', serverAiLogs);
   res.json({ logs: serverAiLogs });
 });
 
 app.post('/api/ai/log', (req: Request, res: Response) => {
   const logItem = req.body;
   if (logItem && logItem.id) {
-    // Upsert or prepend
     serverAiLogs = [logItem, ...serverAiLogs.filter(l => l.id !== logItem.id)].slice(0, 500);
+    setPersistedCollection('aiConversationLogs', serverAiLogs);
   }
   res.json({ success: true, count: serverAiLogs.length });
 });
@@ -561,6 +658,7 @@ app.post('/api/ai/log', (req: Request, res: Response) => {
 // 5. Public Applications Endpoints (Submit & Track)
 // -----------------------------------------------------------------------
 app.get('/api/applications', (_req: Request, res: Response) => {
+  serverApplications = getPersistedCollection<any[]>('publicApplications', serverApplications);
   res.json({ applications: serverApplications });
 });
 
@@ -570,13 +668,15 @@ app.post('/api/applications', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Valid application with tracking ID is required' });
   }
   serverApplications = [application, ...serverApplications.filter(a => a.id !== application.id)];
+  setPersistedCollection('publicApplications', serverApplications);
   res.json({ success: true, application });
 });
 
 app.patch('/api/applications/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
-  serverApplications = serverApplications.map(app => app.id === id ? { ...app, ...updates } : app);
+  serverApplications = serverApplications.map(appItem => appItem.id === id ? { ...appItem, ...updates } : appItem);
+  setPersistedCollection('publicApplications', serverApplications);
   const updated = serverApplications.find(a => a.id === id);
   res.json({ success: true, application: updated });
 });
@@ -584,9 +684,8 @@ app.patch('/api/applications/:id', (req: Request, res: Response) => {
 // -----------------------------------------------------------------------
 // 6. Custom Website Editor Config Endpoints
 // -----------------------------------------------------------------------
-let serverWebsiteConfig: any = null;
-
 app.get('/api/website-config', (_req: Request, res: Response) => {
+  serverWebsiteConfig = getPersistedCollection<any>('websiteCustomConfig', serverWebsiteConfig);
   res.json({ config: serverWebsiteConfig });
 });
 
@@ -596,7 +695,75 @@ app.post('/api/website-config', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Valid config object required' });
   }
   serverWebsiteConfig = newConfig;
+  setPersistedCollection('websiteCustomConfig', serverWebsiteConfig);
   res.json({ success: true, config: serverWebsiteConfig });
+});
+
+// -----------------------------------------------------------------------
+// 7. Unified Full-App Persistence Endpoints (/api/state)
+// -----------------------------------------------------------------------
+app.get('/api/state', (_req: Request, res: Response) => {
+  res.json({
+    schemaVersion: dbState.schemaVersion,
+    updatedAt: dbState.updatedAt,
+    collections: dbState.collections,
+  });
+});
+
+app.put('/api/state/:key', async (req: Request, res: Response) => {
+  try {
+    const { key } = req.params;
+    if (!ALLOWED_STATE_KEYS.has(key)) {
+      return res.status(400).json({ error: `Unknown state key: ${key}` });
+    }
+    const { value } = req.body ?? {};
+    if (value === undefined) {
+      return res.status(400).json({ error: 'Missing value in request body' });
+    }
+
+    const updatedAt = setPersistedCollection(key, value);
+    if (key === 'aiConversationLogs' && Array.isArray(value)) {
+      serverAiLogs = value;
+    } else if (key === 'publicApplications' && Array.isArray(value)) {
+      serverApplications = value;
+    } else if (key === 'websiteCustomConfig') {
+      serverWebsiteConfig = value;
+    }
+
+    await writeChain;
+    res.json({ success: true, key, updatedAt });
+  } catch (err) {
+    console.error('Failed to save state key:', err);
+    res.status(500).json({ error: 'Failed to persist state' });
+  }
+});
+
+app.post('/api/state/bulk', async (req: Request, res: Response) => {
+  try {
+    const { collections } = req.body ?? {};
+    if (!collections || typeof collections !== 'object') {
+      return res.status(400).json({ error: 'collections object is required' });
+    }
+
+    const savedKeys: string[] = [];
+    for (const [key, value] of Object.entries(collections)) {
+      if (ALLOWED_STATE_KEYS.has(key) && value !== undefined) {
+        const now = Date.now();
+        dbState.collections[key] = { value, updatedAt: now };
+        savedKeys.push(key);
+        if (key === 'aiConversationLogs' && Array.isArray(value)) serverAiLogs = value;
+        if (key === 'publicApplications' && Array.isArray(value)) serverApplications = value;
+        if (key === 'websiteCustomConfig') serverWebsiteConfig = value;
+      }
+    }
+    dbState.updatedAt = new Date().toISOString();
+    await scheduleDiskWrite();
+
+    res.json({ success: true, savedKeys, updatedAt: dbState.updatedAt });
+  } catch (err) {
+    console.error('Failed to bulk save state:', err);
+    res.status(500).json({ error: 'Failed to persist bulk state' });
+  }
 });
 
 app.get('/api/health', (_req: Request, res: Response) => {

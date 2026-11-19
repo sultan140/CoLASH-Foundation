@@ -20,6 +20,7 @@ import {
   X
 } from 'lucide-react';
 import { AdvisoryCouncilMember, AdminUser, Language } from '../../types';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 interface AdvisoryCouncilAdminPanelProps {
   currentAdmin: AdminUser | null;
@@ -68,23 +69,33 @@ export const AdvisoryCouncilAdminPanel: React.FC<AdvisoryCouncilAdminPanelProps>
     return matchesQuery && matchesStatus;
   });
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      onToast('error', language === 'bn' ? 'ছবির সাইজ অনেক বড়' : 'Image too large', language === 'bn' ? 'সর্বোচ্চ ২ মেগাবাইট সাইজের ছবি দিন।' : 'Maximum 2MB allowed.');
+    if (file.size > 5 * 1024 * 1024) {
+      onToast('error', language === 'bn' ? 'ছবির সাইজ অনেক বড়' : 'Image too large', language === 'bn' ? 'সর্বোচ্চ ৫ মেগাবাইট সাইজের ছবি দিন।' : 'Maximum 5MB allowed.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setAdvisorPhotoPreview(result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 900,
+        maxHeight: 900,
+        quality: 0.82,
+        format: 'image/webp'
+      });
+      setAdvisorPhotoPreview(compressed.dataUrl);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          setAdvisorPhotoPreview(result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSaveAdvisorSubmit = (e: React.FormEvent<HTMLFormElement>) => {

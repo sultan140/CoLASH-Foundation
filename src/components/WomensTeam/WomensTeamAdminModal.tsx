@@ -33,6 +33,7 @@ import {
   AdminUser
 } from '../../types';
 import { DEFAULT_WOMENS_TEAM_LOGO } from '../../data/womensTeamData';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 interface WomensTeamAdminModalProps {
   isOpen: boolean;
@@ -359,14 +360,26 @@ export const WomensTeamAdminModal: React.FC<WomensTeamAdminModalProps> = ({
     );
   };
 
-  // Logo File Upload handler (FileReader)
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Logo File Upload handler with WebP compression
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        onToast('error', language === 'bn' ? 'ফাইলের আকার ২MB এর বেশি' : 'File too large (>2MB)');
-        return;
-      }
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      onToast('error', language === 'bn' ? 'ফাইলের আকার ৫MB এর বেশি' : 'File too large (>5MB)');
+      return;
+    }
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 600,
+        maxHeight: 600,
+        quality: 0.82,
+        format: 'image/webp'
+      });
+      setLogoInputUrl(compressed.dataUrl);
+      const updated = { ...config, logoUrl: compressed.dataUrl };
+      onUpdateConfig(updated);
+      onToast('success', language === 'bn' ? 'নতুন লোগো আপলোড ও সংরক্ষিত হয়েছে' : 'Logo Uploaded & Saved');
+    } catch {
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;

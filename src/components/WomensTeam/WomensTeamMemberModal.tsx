@@ -47,6 +47,8 @@ import {
   Language
 } from '../../types';
 import { printMemberIdCard, downloadMemberIdCardPNG } from '../../utils/idCardPrintUtils';
+import { compressImageFile } from '../../utils/imageCompressor';
+import { writeLocalStorageSafely } from '../../utils/statePersistence';
 
 interface WomensTeamMemberModalProps {
   isOpen: boolean;
@@ -166,23 +168,38 @@ export const WomensTeamMemberModal: React.FC<WomensTeamMemberModalProps> = ({
     }
   }, [currentUser]);
 
-  // Handle Photo Upload using FileReader
-  const handlePhotoUpload = (file: File, isEdit: boolean = false) => {
-    if (file.size > 3 * 1024 * 1024) {
-      onToast('error', language === 'bn' ? 'ছবির সাইজ ৩MB এর নিচে হতে হবে' : 'Photo size must be under 3MB');
+  // Handle Photo Upload with WebP compression to stay under storage limits
+  const handlePhotoUpload = async (file: File, isEdit: boolean = false) => {
+    if (file.size > 5 * 1024 * 1024) {
+      onToast('error', language === 'bn' ? 'ছবির সাইজ ৫MB এর নিচে হতে হবে' : 'Photo size must be under 5MB');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 900,
+        maxHeight: 900,
+        quality: 0.82,
+        format: 'image/webp'
+      });
       if (isEdit) {
-        setEditPhoto(result);
+        setEditPhoto(compressed.dataUrl);
       } else {
-        setRegPhoto(result);
+        setRegPhoto(compressed.dataUrl);
       }
-      onToast('info', language === 'bn' ? 'ছবি নির্বাচন করা হয়েছে' : 'Photo loaded');
-    };
-    reader.readAsDataURL(file);
+      onToast('info', language === 'bn' ? 'ছবি অপ্টিমাইজ ও নির্বাচন করা হয়েছে' : 'Photo optimized and loaded');
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        if (isEdit) {
+          setEditPhoto(result);
+        } else {
+          setRegPhoto(result);
+        }
+        onToast('info', language === 'bn' ? 'ছবি নির্বাচন করা হয়েছে' : 'Photo loaded');
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleRegisterSubmit = (e: React.FormEvent) => {
@@ -228,7 +245,7 @@ export const WomensTeamMemberModal: React.FC<WomensTeamMemberModalProps> = ({
 
     // Auto login
     setCurrentUser(newMember);
-    localStorage.setItem('colash_womens_team_session', JSON.stringify(newMember));
+    writeLocalStorageSafely('colash_womens_team_session', newMember);
     onLoginSuccess?.(newMember);
     setDashboardTab('idcard');
     setRegSubmitting(false);
@@ -258,7 +275,7 @@ export const WomensTeamMemberModal: React.FC<WomensTeamMemberModalProps> = ({
     };
 
     setCurrentUser(updated);
-    localStorage.setItem('colash_womens_team_session', JSON.stringify(updated));
+    writeLocalStorageSafely('colash_womens_team_session', updated);
     if (onUpdateMember) {
       onUpdateMember(updated);
     }
@@ -296,14 +313,18 @@ export const WomensTeamMemberModal: React.FC<WomensTeamMemberModalProps> = ({
     e.preventDefault();
     if (!matchedMember) return;
     const finalPass = newPassInput.trim() || 'colashwomen2026';
-    // Persist custom password in localStorage
-    try {
-      localStorage.setItem(`colash_womens_pass_${matchedMember.id}`, finalPass);
-    } catch {}
+    const updatedMember: WomensTeamMember = { ...matchedMember, password: finalPass };
+    if (onUpdateMembers) {
+      onUpdateMembers(members.map(m => (m.id === matchedMember.id ? updatedMember : m)));
+    } else if (onUpdateMember) {
+      onUpdateMember(updatedMember);
+    }
+    // Persist custom password locally as well
+    writeLocalStorageSafely(`colash_womens_pass_${matchedMember.id}`, finalPass);
     setIdentifier(matchedMember.membershipId);
     setPassword(finalPass);
     setResetSuccess(true);
-    onToast('success', language === 'bn' ? 'পাসওয়ার্ড সফলভাবে সেট হয়েছে!' : 'Password Reset Successfully!', matchedMember.nameBn);
+    onToast('success', language === 'bn' ? 'পাসওয়ার্ড সফলভাবে সেট ও সংরক্ষিত হয়েছে!' : 'Password Reset & Saved Successfully!', matchedMember.nameBn);
   };
 
   // Close on Escape key

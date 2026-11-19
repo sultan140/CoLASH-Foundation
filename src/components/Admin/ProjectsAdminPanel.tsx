@@ -20,6 +20,7 @@ import {
   DollarSign
 } from 'lucide-react';
 import { Project, Language, AdminUser } from '../../types';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 interface ProjectsAdminPanelProps {
   currentAdmin: AdminUser | null;
@@ -115,22 +116,32 @@ export const ProjectsAdminPanel: React.FC<ProjectsAdminPanelProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      onToast('error', language === 'bn' ? 'ফাইলের আকার বড়' : 'File too large', language === 'bn' ? 'সর্বোচ্চ ৪ মেগাবাইট সাইজের ছবি দিন।' : 'Max 4MB.');
+    if (file.size > 6 * 1024 * 1024) {
+      onToast('error', language === 'bn' ? 'ফাইলের আকার বড়' : 'File too large', language === 'bn' ? 'সর্বোচ্চ ৬ মেগাবাইট সাইজের ছবি দিন।' : 'Max 6MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      if (ev.target?.result) {
-        setImageUrl(ev.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 0.82,
+        format: 'image/webp'
+      });
+      setImageUrl(compressed.dataUrl);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (ev.target?.result) {
+          setImageUrl(ev.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleAddImpactUpdate = () => {

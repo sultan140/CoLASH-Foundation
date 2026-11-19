@@ -24,6 +24,7 @@ import {
   Lock
 } from 'lucide-react';
 import { CommitteeTerm, TeamMember, AdminUser, Language } from '../../types';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 interface CommitteeManagementPanelProps {
   currentAdmin: AdminUser | null;
@@ -94,24 +95,34 @@ export const CommitteeManagementPanel: React.FC<CommitteeManagementPanelProps> =
     return matchesSearch && matchesCat;
   });
 
-  // Photo upload handler
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Photo upload handler with WebP compression
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      onToast('error', language === 'bn' ? 'ছবির সাইজ অনেক বড়' : 'Image too large', language === 'bn' ? 'সর্বোচ্চ ২ মেগাবাইট সাইজের ছবি দিন।' : 'Maximum 2MB allowed.');
+    if (file.size > 5 * 1024 * 1024) {
+      onToast('error', language === 'bn' ? 'ছবির সাইজ অনেক বড়' : 'Image too large', language === 'bn' ? 'সর্বোচ্চ ৫ মেগাবাইট সাইজের ছবি দিন।' : 'Maximum 5MB allowed.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setMemberPhotoPreview(result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 900,
+        maxHeight: 900,
+        quality: 0.82,
+        format: 'image/webp'
+      });
+      setMemberPhotoPreview(compressed.dataUrl);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          setMemberPhotoPreview(result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Switch Active Current Term

@@ -37,6 +37,16 @@ import { EmergencyNoticePage } from './components/EmergencyNoticePage';
 import { ReportsArchiveModal } from './components/common/ReportsArchiveModal';
 import { BackupPromptBanner } from './components/common/BackupPromptBanner';
 import { LocalStorageBackupManager } from './utils/LocalStorageBackupManager';
+import {
+  StateKey,
+  STORAGE_KEY_MAP,
+  loadLocalState,
+  hasLocalState,
+  persistState,
+  syncBulkStateToServer,
+  fetchServerState,
+  writeLocalStorageSafely,
+} from './utils/statePersistence';
 import { exportAuditReport20252026 } from './utils/exportUtils';
 import { Flower2, Sparkles, Send, Layers, FileText, Download, ShieldCheck, BookOpen, ExternalLink, ArrowRight } from 'lucide-react';
 
@@ -101,59 +111,35 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<string>('home');
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
 
-  // Application Data States (Persisted in LocalStorage)
+  // Application Data States (Persisted in LocalStorage & synced to server DB)
   const [projects, setProjects] = useState<Project[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_projects');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // Ensure new initial projects (such as proj-07 for men/youth employment) are present
-          INITIAL_PROJECTS.forEach(initP => {
-            if (!parsed.some((p: Project) => p.id === initP.id)) {
-              parsed.push(initP);
-            }
-          });
-          return parsed;
-        }
-      }
-      return INITIAL_PROJECTS;
-    } catch {
-      return INITIAL_PROJECTS;
+    const saved = loadLocalState<Project[]>('projects', INITIAL_PROJECTS);
+    if (Array.isArray(saved)) {
+      return saved;
     }
+    return INITIAL_PROJECTS;
   });
-  const [donations, setDonations] = useState<Donation[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_donations');
-      return saved ? JSON.parse(saved) : INITIAL_DONATIONS;
-    } catch {
-      return INITIAL_DONATIONS;
-    }
-  });
-  const [volunteers, setVolunteers] = useState<Volunteer[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_volunteers');
-      return saved ? JSON.parse(saved) : INITIAL_VOLUNTEERS;
-    } catch {
-      return INITIAL_VOLUNTEERS;
-    }
-  });
-  const [notices, setNotices] = useState<NoticeItem[]>(INITIAL_NOTICES);
-  const [financialRecords, setFinancialRecords] = useState(FINANCIAL_RECORDS);
+  const [donations, setDonations] = useState<Donation[]>(() =>
+    loadLocalState<Donation[]>('donations', INITIAL_DONATIONS)
+  );
+  const [volunteers, setVolunteers] = useState<Volunteer[]>(() =>
+    loadLocalState<Volunteer[]>('volunteers', INITIAL_VOLUNTEERS)
+  );
+  const [notices, setNotices] = useState<NoticeItem[]>(() =>
+    loadLocalState<NoticeItem[]>('notices', INITIAL_NOTICES)
+  );
+  const [financialRecords, setFinancialRecords] = useState(() =>
+    loadLocalState('financialRecords', FINANCIAL_RECORDS)
+  );
 
-  // Dynamic bKash and Nagad Payment Channels (Persisted in LocalStorage)
-  const [paymentChannels, setPaymentChannels] = useState<PaymentChannel[]>(() => {
-    try {
-      const saved = localStorage.getItem(PAYMENT_CHANNELS_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : INITIAL_PAYMENT_CHANNELS;
-    } catch {
-      return INITIAL_PAYMENT_CHANNELS;
-    }
-  });
+  // Dynamic bKash and Nagad Payment Channels (Persisted in LocalStorage & server)
+  const [paymentChannels, setPaymentChannels] = useState<PaymentChannel[]>(() =>
+    loadLocalState<PaymentChannel[]>('paymentChannels', INITIAL_PAYMENT_CHANNELS)
+  );
 
   const handleUpdatePaymentChannels = (newChannels: PaymentChannel[]) => {
     setPaymentChannels(newChannels);
-    localStorage.setItem(PAYMENT_CHANNELS_STORAGE_KEY, JSON.stringify(newChannels));
+    persistState('paymentChannels', newChannels);
   };
 
   // Modals
@@ -182,161 +168,99 @@ export default function App() {
 
 
   // Public Applications (Persisted in LocalStorage & synced with server)
-  const [publicApplications, setPublicApplications] = useState<PublicApplication[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_public_applications');
-      return saved ? JSON.parse(saved) : INITIAL_PUBLIC_APPLICATIONS;
-    } catch {
-      return INITIAL_PUBLIC_APPLICATIONS;
-    }
-  });
+  const [publicApplications, setPublicApplications] = useState<PublicApplication[]>(() =>
+    loadLocalState<PublicApplication[]>('publicApplications', INITIAL_PUBLIC_APPLICATIONS)
+  );
 
   // AI Conversation Logs (Persisted in LocalStorage & synced with server)
-  const [aiConversationLogs, setAiConversationLogs] = useState<AIConversationLog[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_ai_logs');
-      return saved ? JSON.parse(saved) : INITIAL_AI_CONVERSATION_LOGS;
-    } catch {
-      return INITIAL_AI_CONVERSATION_LOGS;
-    }
-  });
+  const [aiConversationLogs, setAiConversationLogs] = useState<AIConversationLog[]>(() =>
+    loadLocalState<AIConversationLog[]>('aiConversationLogs', INITIAL_AI_CONVERSATION_LOGS)
+  );
 
-  // Map & Address Configuration (Persisted in LocalStorage)
-  const [mapConfig, setMapConfig] = useState<MapConfig>(() => {
-    try {
-      const saved = localStorage.getItem('colash_map_config');
-      return saved ? JSON.parse(saved) : INITIAL_MAP_CONFIG;
-    } catch {
-      return INITIAL_MAP_CONFIG;
-    }
-  });
+  // Map & Address Configuration (Persisted in LocalStorage & server)
+  const [mapConfig, setMapConfig] = useState<MapConfig>(() =>
+    loadLocalState<MapConfig>('mapConfig', INITIAL_MAP_CONFIG)
+  );
 
-  // Custom Website Editor Configuration (Persisted in LocalStorage)
+  // Custom Website Editor Configuration (Persisted in LocalStorage & server)
   const [websiteCustomConfig, setWebsiteCustomConfig] = useState<WebsiteCustomConfig>(() => {
-    try {
-      const saved = localStorage.getItem('colash_published_website_config');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (!parsed.logoUrl) {
-          parsed.logoUrl = INITIAL_WEBSITE_CUSTOM_CONFIG.logoUrl;
-        }
-        return parsed;
-      }
-      return INITIAL_WEBSITE_CUSTOM_CONFIG;
-    } catch {
-      return INITIAL_WEBSITE_CUSTOM_CONFIG;
+    const parsed = loadLocalState<WebsiteCustomConfig>('websiteCustomConfig', INITIAL_WEBSITE_CUSTOM_CONFIG);
+    if (!parsed.logoUrl) {
+      return { ...parsed, logoUrl: INITIAL_WEBSITE_CUSTOM_CONFIG.logoUrl };
     }
+    return parsed;
   });
+
+  const appendAuditLog = (entry: AdminAuditLog) => {
+    setAuditLogs(prev => {
+      const next = [entry, ...prev].slice(0, 500);
+      persistState('auditLogs', next);
+      return next;
+    });
+  };
 
   const handlePublishWebsiteConfig = (newConfig: WebsiteCustomConfig) => {
     setWebsiteCustomConfig(newConfig);
-    try {
-      localStorage.setItem('colash_published_website_config', JSON.stringify(newConfig));
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        adminId: currentAdmin?.id || 'adm-super-1',
-        adminName: currentAdmin?.name || 'Super Admin',
-        adminRole: currentAdmin?.role || 'super_admin',
-        actionBn: `কাস্টম ওয়েবসাইট এডিটরে নতুন কনফিগারেশন সফলভাবে পাবলিশ করেছেন`,
-        actionEn: 'Published new live website custom configuration via editor',
-        category: 'website_editor'
-      };
-      const updatedLogs = [newLog, ...auditLogs];
-      setAuditLogs(updatedLogs);
-      localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
-    } catch (e) {
-      console.error(e);
+    const { localOk, quotaExceeded } = persistState('websiteCustomConfig', newConfig);
+    if (!localOk && quotaExceeded) {
+      addToast(
+        'info',
+        language === 'bn' ? 'সার্ভারে সংরক্ষিত হয়েছে' : 'Saved to Server',
+        language === 'bn'
+          ? 'ব্রাউজার স্টোরেজ পূর্ণ হওয়ায় পরিবর্তনটি মূল সার্ভার ডাটাবেসে সংরক্ষিত হয়েছে।'
+          : 'Browser storage was full; changes were safely persisted to the server.'
+      );
     }
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      adminId: currentAdmin?.id || 'adm-super-1',
+      adminName: currentAdmin?.name || 'Super Admin',
+      adminRole: currentAdmin?.role || 'super_admin',
+      actionBn: `কাস্টম ওয়েবসাইট এডিটরে নতুন কনফিগারেশন সফলভাবে পাবলিশ করেছেন`,
+      actionEn: 'Published new live website custom configuration via editor',
+      category: 'website_editor'
+    });
   };
 
-  // Committee Terms State (Persisted in LocalStorage)
-  const [committeeTerms, setCommitteeTerms] = useState<CommitteeTerm[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_committee_terms');
-      return saved ? JSON.parse(saved) : INITIAL_COMMITTEE_TERMS;
-    } catch {
-      return INITIAL_COMMITTEE_TERMS;
-    }
-  });
+  // Committee Terms State (Persisted in LocalStorage & server)
+  const [committeeTerms, setCommitteeTerms] = useState<CommitteeTerm[]>(() =>
+    loadLocalState<CommitteeTerm[]>('committeeTerms', INITIAL_COMMITTEE_TERMS)
+  );
 
   const handleUpdateCommitteeTerms = (updatedTerms: CommitteeTerm[]) => {
-  try {
-    // প্রথমে ব্রাউজারের স্টোরেজে তথ্য সংরক্ষণ
-    localStorage.setItem(
-      'colash_committee_terms',
-      JSON.stringify(updatedTerms)
-    );
-
-    // সংরক্ষণ সফল হওয়ার পরেই React State আপডেট
     setCommitteeTerms(updatedTerms);
+    persistState('committeeTerms', updatedTerms);
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      adminId: currentAdmin?.id || 'adm-super-1',
+      adminName: currentAdmin?.name || 'Super Admin',
+      adminRole: currentAdmin?.role || 'super_admin',
+      actionBn: 'কমিটি ও মেয়াদের তথ্য এবং সদস্য তালিকা হালনাগাদ করেছেন',
+      actionEn: 'Updated committee terms and member rosters',
+      category: 'committee'
+    });
+  };
 
-    // Audit log আলাদাভাবে সংরক্ষণ
-    try {
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString()
-          .replace('T', ' ')
-          .substring(0, 16),
-        adminId: currentAdmin?.id || 'adm-super-1',
-        adminName: currentAdmin?.name || 'Super Admin',
-        adminRole: currentAdmin?.role || 'super_admin',
-        actionBn: 'কমিটি ও মেয়াদের তথ্য এবং সদস্য তালিকা হালনাগাদ করেছেন',
-        actionEn: 'Updated committee terms and member rosters',
-        category: 'committee'
-      };
-
-      const updatedLogs = [newLog, ...auditLogs];
-
-      localStorage.setItem(
-        'colash_audit_logs',
-        JSON.stringify(updatedLogs)
-      );
-
-      setAuditLogs(updatedLogs);
-    } catch (logError) {
-      console.warn('Audit log could not be saved:', logError);
-    }
-
-  } catch (error) {
-    console.error('Committee save failed:', error);
-
-    // ব্যর্থ হলে আগের ডেটা অপরিবর্তিত থাকবে
-    throw new Error(
-      'কমিটির তথ্য সংরক্ষণ করা যায়নি। ব্রাউজারের স্টোরেজ পরীক্ষা করুন।'
-    );
-  }
-};
-  
-  // Advisory Council State (Persisted in LocalStorage)
-  const [advisors, setAdvisors] = useState<AdvisoryCouncilMember[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_advisors');
-      return saved ? JSON.parse(saved) : INITIAL_ADVISORY_COUNCIL;
-    } catch {
-      return INITIAL_ADVISORY_COUNCIL;
-    }
-  });
+  // Advisory Council State (Persisted in LocalStorage & server)
+  const [advisors, setAdvisors] = useState<AdvisoryCouncilMember[]>(() =>
+    loadLocalState<AdvisoryCouncilMember[]>('advisors', INITIAL_ADVISORY_COUNCIL)
+  );
 
   const handleUpdateAdvisors = (updatedAdvisors: AdvisoryCouncilMember[]) => {
     setAdvisors(updatedAdvisors);
-    try {
-      localStorage.setItem('colash_advisors', JSON.stringify(updatedAdvisors));
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        adminId: currentAdmin?.id || 'adm-super-1',
-        adminName: currentAdmin?.name || 'Super Admin',
-        adminRole: currentAdmin?.role || 'super_admin',
-        actionBn: 'উপদেষ্টামণ্ডলীর তালিকা ও সদস্য বিবরণী হালনাগাদ করেছেন',
-        actionEn: 'Updated advisory council member records and terms',
-        category: 'advisors'
-      };
-      setAuditLogs(prev => [newLog, ...prev]);
-      localStorage.setItem('colash_audit_logs', JSON.stringify([newLog, ...auditLogs]));
-    } catch (e) {
-      console.error(e);
-    }
+    persistState('advisors', updatedAdvisors);
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      adminId: currentAdmin?.id || 'adm-super-1',
+      adminName: currentAdmin?.name || 'Super Admin',
+      adminRole: currentAdmin?.role || 'super_admin',
+      actionBn: 'উপদেষ্টামণ্ডলীর তালিকা ও সদস্য বিবরণী হালনাগাদ করেছেন',
+      actionEn: 'Updated advisory council member records and terms',
+      category: 'advisors'
+    });
   };
 
   // General Members Directory State (Persisted in LocalStorage)
@@ -383,80 +307,44 @@ export default function App() {
 
   const handleUpdateGeneralMembers = (updatedMembers: GeneralMember[]) => {
     setGeneralMembers(updatedMembers);
-    try {
-      localStorage.setItem('colash_general_members', JSON.stringify(updatedMembers));
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        adminId: currentAdmin?.id || 'adm-super-1',
-        adminName: currentAdmin?.name || 'Super Admin',
-        adminRole: currentAdmin?.role || 'super_admin',
-        actionBn: 'সাধারণ সদস্য ডিরেক্টরি ও তথ্যাবলি সফলভাবে আপডেট করেছেন',
-        actionEn: 'Updated general members registry and unique IDs',
-        category: 'member'
-      };
-      setAuditLogs(prev => [newLog, ...prev]);
-      localStorage.setItem('colash_audit_logs', JSON.stringify([newLog, ...auditLogs]));
-    } catch (e) {
-      console.error(e);
-    }
+    persistState('generalMembers', updatedMembers);
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      adminId: currentAdmin?.id || 'adm-super-1',
+      adminName: currentAdmin?.name || 'Super Admin',
+      adminRole: currentAdmin?.role || 'super_admin',
+      actionBn: 'সাধারণ সদস্য ডিরেক্টরি ও তথ্যাবলি সফলভাবে আপডেট করেছেন',
+      actionEn: 'Updated general members registry and unique IDs',
+      category: 'member'
+    });
   };
 
-  // AI Content Management Knowledge Base (Persisted in LocalStorage)
-  const [aiKnowledgeBase, setAiKnowledgeBase] = useState<AIKnowledgeItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_ai_knowledge');
-      return saved ? JSON.parse(saved) : INITIAL_AI_KNOWLEDGE;
-    } catch {
-      return INITIAL_AI_KNOWLEDGE;
-    }
-  });
+  // AI Content Management Knowledge Base (Persisted in LocalStorage & server)
+  const [aiKnowledgeBase, setAiKnowledgeBase] = useState<AIKnowledgeItem[]>(() =>
+    loadLocalState<AIKnowledgeItem[]>('aiKnowledgeBase', INITIAL_AI_KNOWLEDGE)
+  );
 
-  // Women's Team Autonomous Wing States (Persisted in LocalStorage)
-  const [womensTeamConfig, setWomensTeamConfig] = useState<WomensTeamConfig>(() => {
-    try {
-      const saved = localStorage.getItem('colash_womens_team_config');
-      return saved ? JSON.parse(saved) : INITIAL_WOMENS_TEAM_CONFIG;
-    } catch {
-      return INITIAL_WOMENS_TEAM_CONFIG;
-    }
-  });
+  // Women's Team Autonomous Wing States (Persisted in LocalStorage & server)
+  const [womensTeamConfig, setWomensTeamConfig] = useState<WomensTeamConfig>(() =>
+    loadLocalState<WomensTeamConfig>('womensTeamConfig', INITIAL_WOMENS_TEAM_CONFIG)
+  );
 
-  const [womensTeamMembers, setWomensTeamMembers] = useState<WomensTeamMember[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_womens_team_members');
-      return saved ? JSON.parse(saved) : INITIAL_WOMENS_TEAM_MEMBERS;
-    } catch {
-      return INITIAL_WOMENS_TEAM_MEMBERS;
-    }
-  });
+  const [womensTeamMembers, setWomensTeamMembers] = useState<WomensTeamMember[]>(() =>
+    loadLocalState<WomensTeamMember[]>('womensTeamMembers', INITIAL_WOMENS_TEAM_MEMBERS)
+  );
 
-  const [womensTeamActivities, setWomensTeamActivities] = useState<WomensTeamActivity[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_womens_team_activities');
-      return saved ? JSON.parse(saved) : INITIAL_WOMENS_ACTIVITIES;
-    } catch {
-      return INITIAL_WOMENS_ACTIVITIES;
-    }
-  });
+  const [womensTeamActivities, setWomensTeamActivities] = useState<WomensTeamActivity[]>(() =>
+    loadLocalState<WomensTeamActivity[]>('womensTeamActivities', INITIAL_WOMENS_ACTIVITIES)
+  );
 
-  const [womensTeamDocuments, setWomensTeamDocuments] = useState<WomensTeamDocument[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_womens_team_documents');
-      return saved ? JSON.parse(saved) : INITIAL_WOMENS_DOCUMENTS;
-    } catch {
-      return INITIAL_WOMENS_DOCUMENTS;
-    }
-  });
+  const [womensTeamDocuments, setWomensTeamDocuments] = useState<WomensTeamDocument[]>(() =>
+    loadLocalState<WomensTeamDocument[]>('womensTeamDocuments', INITIAL_WOMENS_DOCUMENTS)
+  );
 
-  const [womensTeamNotices, setWomensTeamNotices] = useState<WomensTeamNotice[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_womens_team_notices');
-      return saved ? JSON.parse(saved) : INITIAL_WOMENS_NOTICES;
-    } catch {
-      return INITIAL_WOMENS_NOTICES;
-    }
-  });
+  const [womensTeamNotices, setWomensTeamNotices] = useState<WomensTeamNotice[]>(() =>
+    loadLocalState<WomensTeamNotice[]>('womensTeamNotices', INITIAL_WOMENS_NOTICES)
+  );
 
   // Women's Team Modals & Member Session
   const [isWomensMemberModalOpen, setIsWomensMemberModalOpen] = useState(false);
@@ -475,24 +363,19 @@ export default function App() {
 
   const handleWomensLogin = (user: WomensTeamMember) => {
     setCurrentWomensUser(user);
-    try {
-      localStorage.setItem('colash_womens_team_session', JSON.stringify(user));
-    } catch (e) {
-      console.error(e);
-    }
+    writeLocalStorageSafely('colash_womens_team_session', user);
     // Launch full dedicated Women's Team Dashboard immediately
     setIsWomensMemberModalOpen(true);
   };
 
   const handleRegisterWomensMember = (newMember: WomensTeamMember) => {
-    const updated = [newMember, ...womensTeamMembers];
-    handleUpdateWomensMembers(updated);
+    setWomensTeamMembers(prev => {
+      const updated = [newMember, ...prev];
+      persistState('womensTeamMembers', updated);
+      return updated;
+    });
     setCurrentWomensUser(newMember);
-    try {
-      localStorage.setItem('colash_womens_team_session', JSON.stringify(newMember));
-    } catch (e) {
-      console.error(e);
-    }
+    writeLocalStorageSafely('colash_womens_team_session', newMember);
     addToast(
       'success',
       language === 'bn' ? 'সদস্য আইডি তৈরি সফল হয়েছে!' : 'Member ID Created!',
@@ -501,14 +384,13 @@ export default function App() {
   };
 
   const handleUpdateWomensMemberSelf = (updatedMember: WomensTeamMember) => {
-    const updated = womensTeamMembers.map(m => m.id === updatedMember.id ? updatedMember : m);
-    handleUpdateWomensMembers(updated);
+    setWomensTeamMembers(prev => {
+      const updated = prev.map(m => m.id === updatedMember.id ? updatedMember : m);
+      persistState('womensTeamMembers', updated);
+      return updated;
+    });
     setCurrentWomensUser(updatedMember);
-    try {
-      localStorage.setItem('colash_womens_team_session', JSON.stringify(updatedMember));
-    } catch (e) {
-      console.error(e);
-    }
+    writeLocalStorageSafely('colash_womens_team_session', updatedMember);
     addToast(
       'success',
       language === 'bn' ? 'প্রোফাইল তথ্য ও ছবি সফলভাবে হালনাগাদ করা হয়েছে' : 'Profile Updated'
@@ -531,27 +413,27 @@ export default function App() {
 
   const handleUpdateWomensConfig = (newConfig: WomensTeamConfig) => {
     setWomensTeamConfig(newConfig);
-    localStorage.setItem('colash_womens_team_config', JSON.stringify(newConfig));
+    persistState('womensTeamConfig', newConfig);
   };
 
   const handleUpdateWomensMembers = (newMembers: WomensTeamMember[]) => {
     setWomensTeamMembers(newMembers);
-    localStorage.setItem('colash_womens_team_members', JSON.stringify(newMembers));
+    persistState('womensTeamMembers', newMembers);
   };
 
   const handleUpdateWomensActivities = (newActivities: WomensTeamActivity[]) => {
     setWomensTeamActivities(newActivities);
-    localStorage.setItem('colash_womens_team_activities', JSON.stringify(newActivities));
+    persistState('womensTeamActivities', newActivities);
   };
 
   const handleUpdateWomensDocuments = (newDocs: WomensTeamDocument[]) => {
     setWomensTeamDocuments(newDocs);
-    localStorage.setItem('colash_womens_team_documents', JSON.stringify(newDocs));
+    persistState('womensTeamDocuments', newDocs);
   };
 
   const handleUpdateWomensNotices = (newNotices: WomensTeamNotice[]) => {
     setWomensTeamNotices(newNotices);
-    localStorage.setItem('colash_womens_team_notices', JSON.stringify(newNotices));
+    persistState('womensTeamNotices', newNotices);
   };
 
   const sanitizeAdminName = (text: string) =>
@@ -559,29 +441,22 @@ export default function App() {
       .replace(/ইঞ্জি\.\s*আশরাফুল ইসলাম/g, 'Md. Ashraful Islam Sultan')
       .replace(/Engr\.\s*Ashraful Islam/g, 'Md. Ashraful Islam Sultan');
 
-  // Admin & Permission Management States (Persisted in LocalStorage)
+  // Admin & Permission Management States (Persisted in LocalStorage & server)
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_admin_users');
-      if (saved) {
-        const parsed: AdminUser[] = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.map((u) =>
-            u.id === 'adm-super-1'
-              ? {
-                  ...u,
-                  name: sanitizeAdminName(u.name),
-                  roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
-                  roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
-                }
-              : u
-          );
-        }
-      }
-      return INITIAL_ADMIN_USERS;
-    } catch {
-      return INITIAL_ADMIN_USERS;
+    const parsed = loadLocalState<AdminUser[]>('adminUsers', INITIAL_ADMIN_USERS);
+    if (Array.isArray(parsed)) {
+      return parsed.map((u) =>
+        u.id === 'adm-super-1'
+          ? {
+              ...u,
+              name: sanitizeAdminName(u.name),
+              roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
+              roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
+            }
+          : u
+      );
     }
+    return INITIAL_ADMIN_USERS;
   });
 
   const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(() => {
@@ -600,47 +475,36 @@ export default function App() {
   });
 
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>(() => {
-    try {
-      const saved = localStorage.getItem('colash_audit_logs');
-      if (saved) {
-        const parsed: AdminAuditLog[] = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.map((l) => ({
-            ...l,
-            adminName: sanitizeAdminName(l.adminName),
-          }));
-        }
-      }
-      return INITIAL_AUDIT_LOGS;
-    } catch {
-      return INITIAL_AUDIT_LOGS;
+    const parsed = loadLocalState<AdminAuditLog[]>('auditLogs', INITIAL_AUDIT_LOGS);
+    if (Array.isArray(parsed)) {
+      return parsed.map((l) => ({
+        ...l,
+        adminName: sanitizeAdminName(l.adminName),
+      }));
     }
+    return INITIAL_AUDIT_LOGS;
   });
 
   const handleAdminLogin = (user: AdminUser) => {
     setCurrentAdmin(user);
-    try {
-      localStorage.setItem('colash_current_admin', JSON.stringify(user));
-      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
-      const updatedList = adminUsers.map(u => u.id === user.id ? { ...u, lastLogin: nowStr } : u);
-      setAdminUsers(updatedList);
-      localStorage.setItem('colash_admin_users', JSON.stringify(updatedList));
+    writeLocalStorageSafely('colash_current_admin', user);
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    setAdminUsers(prev => {
+      const updatedList = prev.map(u => u.id === user.id ? { ...u, lastLogin: nowStr } : u);
+      persistState('adminUsers', updatedList);
+      return updatedList;
+    });
 
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: nowStr,
-        adminId: user.id,
-        adminName: `${user.name} (${user.roleTitleBn})`,
-        adminRole: user.role,
-        actionBn: 'সিস্টেমে লগইন করেছেন এবং অ্যাডমিন ড্যাশবোর্ড অ্যাক্সেস করেছেন',
-        actionEn: 'Admin logged in and accessed dashboard',
-        category: 'auth'
-      };
-      setAuditLogs(prev => [newLog, ...prev]);
-      localStorage.setItem('colash_audit_logs', JSON.stringify([newLog, ...auditLogs]));
-    } catch (e) {
-      console.error(e);
-    }
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: nowStr,
+      adminId: user.id,
+      adminName: `${user.name} (${user.roleTitleBn})`,
+      adminRole: user.role,
+      actionBn: 'সিস্টেমে লগইন করেছেন এবং অ্যাডমিন ড্যাশবোর্ড অ্যাক্সেস করেছেন',
+      actionEn: 'Admin logged in and accessed dashboard',
+      category: 'auth'
+    });
   };
 
   const handleAdminLogout = () => {
@@ -658,11 +522,13 @@ export default function App() {
   };
 
   const handleCreateAdmin = (newAdmin: AdminUser) => {
-    const updated = [newAdmin, ...adminUsers];
-    setAdminUsers(updated);
-    localStorage.setItem('colash_admin_users', JSON.stringify(updated));
+    setAdminUsers(prev => {
+      const updated = [newAdmin, ...prev];
+      persistState('adminUsers', updated);
+      return updated;
+    });
 
-    const newLog: AdminAuditLog = {
+    appendAuditLog({
       id: `log-${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
       adminId: currentAdmin?.id || 'adm-super',
@@ -671,22 +537,21 @@ export default function App() {
       actionBn: `নতুন অ্যাডমিন ${newAdmin.name} (${newAdmin.roleTitleBn})-কে পারমিশনসহ নিয়োগ দিয়েছেন`,
       actionEn: `Created new admin ${newAdmin.name} (${newAdmin.roleTitleEn})`,
       category: 'admin_manage'
-    };
-    const updatedLogs = [newLog, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
+    });
   };
 
   const handleUpdateAdmin = (updatedAdmin: AdminUser) => {
-    const updated = adminUsers.map(u => u.id === updatedAdmin.id ? updatedAdmin : u);
-    setAdminUsers(updated);
-    localStorage.setItem('colash_admin_users', JSON.stringify(updated));
+    setAdminUsers(prev => {
+      const updated = prev.map(u => u.id === updatedAdmin.id ? updatedAdmin : u);
+      persistState('adminUsers', updated);
+      return updated;
+    });
     if (currentAdmin?.id === updatedAdmin.id) {
       setCurrentAdmin(updatedAdmin);
-      localStorage.setItem('colash_current_admin', JSON.stringify(updatedAdmin));
+      writeLocalStorageSafely('colash_current_admin', updatedAdmin);
     }
 
-    const newLog: AdminAuditLog = {
+    appendAuditLog({
       id: `log-${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
       adminId: currentAdmin?.id || 'adm-super',
@@ -695,19 +560,18 @@ export default function App() {
       actionBn: `অ্যাডমিন ${updatedAdmin.name}-এর পারমিশন ও তথ্য হালনাগাদ করেছেন`,
       actionEn: `Updated details and permissions for ${updatedAdmin.name}`,
       category: 'admin_manage'
-    };
-    const updatedLogs = [newLog, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
+    });
   };
 
   const handleDeleteAdmin = (id: string) => {
     const target = adminUsers.find(u => u.id === id);
-    const updated = adminUsers.filter(u => u.id !== id);
-    setAdminUsers(updated);
-    localStorage.setItem('colash_admin_users', JSON.stringify(updated));
+    setAdminUsers(prev => {
+      const updated = prev.filter(u => u.id !== id);
+      persistState('adminUsers', updated);
+      return updated;
+    });
 
-    const newLog: AdminAuditLog = {
+    appendAuditLog({
       id: `log-${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
       adminId: currentAdmin?.id || 'adm-super',
@@ -716,10 +580,7 @@ export default function App() {
       actionBn: `অ্যাডমিন ${target?.name || id}-এর অ্যাক্সেস বাতিল করেছেন`,
       actionEn: `Revoked access for admin ${target?.name || id}`,
       category: 'admin_manage'
-    };
-    const updatedLogs = [newLog, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
+    });
 
     addToast('info', language === 'bn' ? 'অ্যাডমিন অ্যাক্সেস বাতিল' : 'Admin Access Revoked');
   };
@@ -728,11 +589,13 @@ export default function App() {
     const target = adminUsers.find(u => u.id === id);
     if (!target) return;
     const newStatus = !target.isActive;
-    const updated = adminUsers.map(u => u.id === id ? { ...u, isActive: newStatus } : u);
-    setAdminUsers(updated);
-    localStorage.setItem('colash_admin_users', JSON.stringify(updated));
+    setAdminUsers(prev => {
+      const updated = prev.map(u => u.id === id ? { ...u, isActive: newStatus } : u);
+      persistState('adminUsers', updated);
+      return updated;
+    });
 
-    const newLog: AdminAuditLog = {
+    appendAuditLog({
       id: `log-${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
       adminId: currentAdmin?.id || 'adm-super',
@@ -741,10 +604,7 @@ export default function App() {
       actionBn: `অ্যাডমিন ${target.name}-কে ${newStatus ? 'সক্রিয়' : 'সাময়িকভাবে নিষ্ক্রিয়'} করেছেন`,
       actionEn: `${newStatus ? 'Activated' : 'Suspended'} admin ${target.name}`,
       category: 'admin_manage'
-    };
-    const updatedLogs = [newLog, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
+    });
 
     addToast(
       'info',
@@ -756,16 +616,18 @@ export default function App() {
 
   const handleChangeAdminPassword = (id: string, newPass: string) => {
     const target = adminUsers.find(u => u.id === id);
-    const updated = adminUsers.map(u => u.id === id ? { ...u, password: newPass } : u);
-    setAdminUsers(updated);
-    localStorage.setItem('colash_admin_users', JSON.stringify(updated));
+    setAdminUsers(prev => {
+      const updated = prev.map(u => u.id === id ? { ...u, password: newPass } : u);
+      persistState('adminUsers', updated);
+      return updated;
+    });
     if (currentAdmin?.id === id) {
       const updatedCurrent = { ...currentAdmin, password: newPass };
       setCurrentAdmin(updatedCurrent);
-      localStorage.setItem('colash_current_admin', JSON.stringify(updatedCurrent));
+      writeLocalStorageSafely('colash_current_admin', updatedCurrent);
     }
 
-    const newLog: AdminAuditLog = {
+    appendAuditLog({
       id: `log-${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
       adminId: currentAdmin?.id || id,
@@ -774,54 +636,37 @@ export default function App() {
       actionBn: `অ্যাকাউন্টের পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে`,
       actionEn: 'Password updated successfully',
       category: 'security'
-    };
-    const updatedLogs = [newLog, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
+    });
   };
 
   const handleUpdateMapConfig = (newConfig: MapConfig) => {
     setMapConfig(newConfig);
-    try {
-      localStorage.setItem('colash_map_config', JSON.stringify(newConfig));
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        adminId: currentAdmin?.id || 'adm-super-1',
-        adminName: currentAdmin?.name || 'Super Admin',
-        adminRole: currentAdmin?.role || 'super_admin',
-        actionBn: `অফিস ঠিকানা ও গুগল ম্যাপ কনফিগারেশন আপডেট করা হয়েছে`,
-        actionEn: 'Office address and Google Maps configuration updated',
-        category: 'settings'
-      };
-      const updatedLogs = [newLog, ...auditLogs];
-      setAuditLogs(updatedLogs);
-      localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
-    } catch (e) {
-      console.error(e);
-    }
+    persistState('mapConfig', newConfig);
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      adminId: currentAdmin?.id || 'adm-super-1',
+      adminName: currentAdmin?.name || 'Super Admin',
+      adminRole: currentAdmin?.role || 'super_admin',
+      actionBn: `অফিস ঠিকানা ও গুগল ম্যাপ কনফিগারেশন আপডেট করা হয়েছে`,
+      actionEn: 'Office address and Google Maps configuration updated',
+      category: 'settings'
+    });
   };
 
   const handleUpdateAIKnowledgeBase = (newKB: AIKnowledgeItem[]) => {
     setAiKnowledgeBase(newKB);
-    try {
-      localStorage.setItem('colash_ai_knowledge', JSON.stringify(newKB));
-      const newLog: AdminAuditLog = {
-        id: `log-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        adminId: currentAdmin?.id || 'adm-super-1',
-        adminName: currentAdmin?.name || 'Super Admin',
-        adminRole: currentAdmin?.role || 'super_admin',
-        actionBn: `AI Content Management নলেজ বেস আপডেট করা হয়েছে`,
-        actionEn: 'AI Content Management knowledge base updated',
-        category: 'ai_content'
-      };
-      const updatedLogs = [newLog, ...auditLogs];
-      setAuditLogs(updatedLogs);
-      localStorage.setItem('colash_audit_logs', JSON.stringify(updatedLogs));
-    } catch (e) {
-      console.error(e);
-    }
+    persistState('aiKnowledgeBase', newKB);
+    appendAuditLog({
+      id: `log-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      adminId: currentAdmin?.id || 'adm-super-1',
+      adminName: currentAdmin?.name || 'Super Admin',
+      adminRole: currentAdmin?.role || 'super_admin',
+      actionBn: `AI Content Management নলেজ বেস আপডেট করা হয়েছে`,
+      actionEn: 'AI Content Management knowledge base updated',
+      category: 'ai_content'
+    });
   };
 
   // Toast System
@@ -891,6 +736,123 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+
+  // Apply Website Customizer Colors & Typography dynamically to CSS Variables
+  useEffect(() => {
+    const root = document.documentElement;
+    if (websiteCustomConfig.primaryColor) {
+      root.style.setProperty('--brand-teal', websiteCustomConfig.primaryColor);
+    }
+    if (websiteCustomConfig.secondaryColor) {
+      root.style.setProperty('--brand-navy', websiteCustomConfig.secondaryColor);
+    }
+    if (websiteCustomConfig.accentColor) {
+      root.style.setProperty('--brand-lime', websiteCustomConfig.accentColor);
+    }
+    if (websiteCustomConfig.bgTone) {
+      root.style.setProperty('--brand-ivory', websiteCustomConfig.bgTone);
+    }
+    if (websiteCustomConfig.fontFamily) {
+      document.body.style.fontFamily = `'${websiteCustomConfig.fontFamily}', 'Plus Jakarta Sans', 'Hind Siliguri', system-ui, sans-serif`;
+    }
+  }, [
+    websiteCustomConfig.primaryColor,
+    websiteCustomConfig.secondaryColor,
+    websiteCustomConfig.accentColor,
+    websiteCustomConfig.bgTone,
+    websiteCustomConfig.fontFamily,
+  ]);
+
+  // Hydrate all persisted application data from backend DB on mount & seed any pre-existing local edits
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const serverCollections = await fetchServerState();
+      if (cancelled || !serverCollections) return;
+
+      const toSeed: Partial<Record<StateKey, unknown>> = {};
+      const applyOrSeed = <T,>(
+        key: StateKey,
+        localCurrent: T,
+        setter: React.Dispatch<React.SetStateAction<T>>,
+        transform?: (val: any) => T
+      ) => {
+        const entry = serverCollections[key];
+        if (entry && entry.value !== undefined && entry.value !== null) {
+          const val = transform ? transform(entry.value) : (entry.value as T);
+          setter(val);
+          writeLocalStorageSafely(STORAGE_KEY_MAP[key], val);
+        } else if (hasLocalState(key)) {
+          toSeed[key] = localCurrent;
+        }
+      };
+
+      applyOrSeed('projects', projects, setProjects);
+      applyOrSeed('donations', donations, setDonations);
+      applyOrSeed('volunteers', volunteers, setVolunteers);
+      applyOrSeed('notices', notices, setNotices);
+      applyOrSeed('financialRecords', financialRecords, setFinancialRecords);
+      applyOrSeed('paymentChannels', paymentChannels, setPaymentChannels);
+      applyOrSeed('publicApplications', publicApplications, setPublicApplications);
+      applyOrSeed('aiConversationLogs', aiConversationLogs, setAiConversationLogs);
+      applyOrSeed('mapConfig', mapConfig, setMapConfig);
+      applyOrSeed('websiteCustomConfig', websiteCustomConfig, setWebsiteCustomConfig, (cfg) => ({
+        ...INITIAL_WEBSITE_CUSTOM_CONFIG,
+        ...cfg,
+        logoUrl: cfg?.logoUrl || INITIAL_WEBSITE_CUSTOM_CONFIG.logoUrl,
+      }));
+      applyOrSeed('committeeTerms', committeeTerms, setCommitteeTerms);
+      applyOrSeed('advisors', advisors, setAdvisors);
+      applyOrSeed('generalMembers', generalMembers, setGeneralMembers, (list) =>
+        Array.isArray(list)
+          ? list.map((p: GeneralMember) => {
+              const original = GENERAL_MEMBERS.find(m => m.id === p.id);
+              return {
+                ...p,
+                dateOfBirth: p.dateOfBirth || original?.dateOfBirth,
+                birthMonth: p.birthMonth || original?.birthMonth,
+                birthDay: p.birthDay || original?.birthDay,
+              };
+            })
+          : GENERAL_MEMBERS
+      );
+      applyOrSeed('aiKnowledgeBase', aiKnowledgeBase, setAiKnowledgeBase);
+      applyOrSeed('womensTeamConfig', womensTeamConfig, setWomensTeamConfig);
+      applyOrSeed('womensTeamMembers', womensTeamMembers, setWomensTeamMembers);
+      applyOrSeed('womensTeamActivities', womensTeamActivities, setWomensTeamActivities);
+      applyOrSeed('womensTeamDocuments', womensTeamDocuments, setWomensTeamDocuments);
+      applyOrSeed('womensTeamNotices', womensTeamNotices, setWomensTeamNotices);
+      applyOrSeed('adminUsers', adminUsers, setAdminUsers, (list) =>
+        Array.isArray(list)
+          ? list.map((u: AdminUser) =>
+              u.id === 'adm-super-1'
+                ? {
+                    ...u,
+                    name: sanitizeAdminName(u.name),
+                    roleTitleBn: u.roleTitleBn?.includes('প্রধান অ্যাডমিন') ? 'প্রতিষ্ঠাতা, সভাপতি ও সুপার অ্যাডমিন' : u.roleTitleBn,
+                    roleTitleEn: u.roleTitleEn === 'Super Admin & Founder' ? 'Founder, President & Super Admin' : u.roleTitleEn,
+                  }
+                : u
+            )
+          : INITIAL_ADMIN_USERS
+      );
+      applyOrSeed('auditLogs', auditLogs, setAuditLogs, (list) =>
+        Array.isArray(list)
+          ? list.map((l: AdminAuditLog) => ({ ...l, adminName: sanitizeAdminName(l.adminName) }))
+          : INITIAL_AUDIT_LOGS
+      );
+
+      if (Object.keys(toSeed).length > 0) {
+        void syncBulkStateToServer(toSeed);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Run once on initial mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Persistent Authentication Guard & Rehydration Hook
   useEffect(() => {
@@ -1119,12 +1081,16 @@ export default function App() {
 
   // When a donation is submitted
   const handleDonationSuccess = (newDonation: Donation) => {
-    setDonations(prev => [newDonation, ...prev]);
+    setDonations(prev => {
+      const next = [newDonation, ...prev];
+      persistState('donations', next);
+      return next;
+    });
 
     // Update matching project target if applicable
     if (newDonation.purpose && newDonation.purpose !== 'general') {
-      setProjects(prevProjects =>
-        prevProjects.map(p => {
+      setProjects(prevProjects => {
+        const nextProjects = prevProjects.map(p => {
           if (p.id === newDonation.purpose) {
             return {
               ...p,
@@ -1133,8 +1099,10 @@ export default function App() {
             };
           }
           return p;
-        })
-      );
+        });
+        persistState('projects', nextProjects);
+        return nextProjects;
+      });
     }
 
     // Add to public financial audit ledger
@@ -1149,7 +1117,11 @@ export default function App() {
       descriptionBn: `${newDonation.purposeNameBn} প্রকল্পে অনলাইন অনুদান (${newDonation.donorName})`,
       descriptionEn: `Online donation for ${newDonation.purposeNameEn} (${newDonation.donorName})`
     };
-    setFinancialRecords(prev => [newRecord, ...prev]);
+    setFinancialRecords(prev => {
+      const next = [newRecord, ...prev];
+      persistState('financialRecords', next);
+      return next;
+    });
 
     addToast(
       'success',
@@ -1159,12 +1131,16 @@ export default function App() {
   };
 
   const handleRegisterVolunteer = (newVol: Volunteer) => {
-    setVolunteers(prev => [newVol, ...prev]);
+    setVolunteers(prev => {
+      const next = [newVol, ...prev];
+      persistState('volunteers', next);
+      return next;
+    });
   };
 
   const handleToggleDonationVerify = (id: string) => {
-    setDonations(prev =>
-      prev.map(d => {
+    setDonations(prev => {
+      const next = prev.map(d => {
         if (d.id === id) {
           const updated = !d.isVerified;
           addToast(
@@ -1175,18 +1151,16 @@ export default function App() {
           return { ...d, isVerified: updated };
         }
         return d;
-      })
-    );
+      });
+      persistState('donations', next);
+      return next;
+    });
   };
 
   const handleDeleteDonation = (id: string) => {
     setDonations(prev => {
       const updated = prev.filter(d => d.id !== id);
-      try {
-        localStorage.setItem('colash_donations', JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
+      persistState('donations', updated);
       return updated;
     });
     addToast('info', language === 'bn' ? 'অনুদান রেকর্ড মুছে ফেলা হয়েছে' : 'Donation record deleted');
@@ -1205,78 +1179,60 @@ export default function App() {
         }
         return v;
       });
-      try {
-        localStorage.setItem('colash_volunteers', JSON.stringify(updated));
-      } catch (e) {
-        console.error(e);
-      }
+      persistState('volunteers', updated);
       return updated;
     });
   };
 
   const handleAddVolunteer = (newVol: Volunteer) => {
-    const updated = [newVol, ...volunteers];
-    setVolunteers(updated);
-    try {
-      localStorage.setItem('colash_volunteers', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setVolunteers(prev => {
+      const updated = [newVol, ...prev];
+      persistState('volunteers', updated);
+      return updated;
+    });
     addToast('success', language === 'bn' ? 'নতুন স্বেচ্ছাসেবী সফলভাবে যুক্ত হয়েছে' : 'Volunteer Added', newVol.fullName);
   };
 
   const handleUpdateVolunteer = (updatedVol: Volunteer) => {
-    const updated = volunteers.map(v => v.id === updatedVol.id ? updatedVol : v);
-    setVolunteers(updated);
-    try {
-      localStorage.setItem('colash_volunteers', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setVolunteers(prev => {
+      const updated = prev.map(v => v.id === updatedVol.id ? updatedVol : v);
+      persistState('volunteers', updated);
+      return updated;
+    });
     addToast('success', language === 'bn' ? 'স্বেচ্ছাসেবী তথ্য আপডেট হয়েছে' : 'Volunteer Updated', updatedVol.fullName);
   };
 
   const handleDeleteVolunteer = (id: string) => {
     const target = volunteers.find(v => v.id === id);
-    const updated = volunteers.filter(v => v.id !== id);
-    setVolunteers(updated);
-    try {
-      localStorage.setItem('colash_volunteers', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setVolunteers(prev => {
+      const updated = prev.filter(v => v.id !== id);
+      persistState('volunteers', updated);
+      return updated;
+    });
     addToast('info', language === 'bn' ? 'স্বেচ্ছাসেবী মুছে ফেলা হয়েছে' : 'Volunteer Deleted', target?.fullName);
   };
 
   const handleDeleteAuditLog = (id: string) => {
-    const updated = auditLogs.filter(l => l.id !== id);
-    setAuditLogs(updated);
-    try {
-      localStorage.setItem('colash_audit_logs', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setAuditLogs(prev => {
+      const updated = prev.filter(l => l.id !== id);
+      persistState('auditLogs', updated);
+      return updated;
+    });
     addToast('info', language === 'bn' ? 'অডিট রেকর্ড মুছে ফেলা হয়েছে' : 'Audit record deleted');
   };
 
   const handleClearAuditLogs = () => {
     setAuditLogs([]);
-    try {
-      localStorage.setItem('colash_audit_logs', JSON.stringify([]));
-    } catch (e) {
-      console.error(e);
-    }
+    persistState('auditLogs', []);
     addToast('info', language === 'bn' ? 'সকল অডিট রেকর্ড মুছে ফেলা হয়েছে' : 'All audit records cleared');
   };
 
   const handleAddNewProject = (project: Project) => {
-    const updated = [project, ...projects];
-    setProjects(updated);
-    try {
-      localStorage.setItem('colash_projects', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setProjects(prev => {
+      const updated = [project, ...prev];
+      persistState('projects', updated);
+      return updated;
+    });
     addToast(
       'success',
       language === 'bn' ? 'নতুন মানবিক প্রকল্প যুক্ত করা হয়েছে' : 'New Project Created',
@@ -1285,13 +1241,11 @@ export default function App() {
   };
 
   const handleUpdateProject = (updatedProj: Project) => {
-    const updated = projects.map(p => p.id === updatedProj.id ? updatedProj : p);
-    setProjects(updated);
-    try {
-      localStorage.setItem('colash_projects', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setProjects(prev => {
+      const updated = prev.map(p => p.id === updatedProj.id ? updatedProj : p);
+      persistState('projects', updated);
+      return updated;
+    });
     addToast(
       'success',
       language === 'bn' ? 'প্রকল্প সফলভাবে সম্পাদনা করা হয়েছে' : 'Project Updated Successfully',
@@ -1301,13 +1255,11 @@ export default function App() {
 
   const handleDeleteProject = (projId: string) => {
     const target = projects.find(p => p.id === projId);
-    const updated = projects.filter(p => p.id !== projId);
-    setProjects(updated);
-    try {
-      localStorage.setItem('colash_projects', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    setProjects(prev => {
+      const updated = prev.filter(p => p.id !== projId);
+      persistState('projects', updated);
+      return updated;
+    });
     addToast(
       'info',
       language === 'bn' ? 'প্রকল্প মুছে ফেলা হয়েছে' : 'Project Deleted',
@@ -1316,7 +1268,11 @@ export default function App() {
   };
 
   const handleAddNewNotice = (notice: NoticeItem) => {
-    setNotices(prev => [notice, ...prev]);
+    setNotices(prev => {
+      const updated = [notice, ...prev];
+      persistState('notices', updated);
+      return updated;
+    });
     addToast(
       'success',
       'নতুন বিজ্ঞপ্তি প্রকাশিত হয়েছে',
@@ -1325,47 +1281,120 @@ export default function App() {
   };
 
   const handleDeleteNotice = (noticeId: string) => {
-    setNotices(prev => prev.filter(n => n.id !== noticeId));
+    setNotices(prev => {
+      const updated = prev.filter(n => n.id !== noticeId);
+      persistState('notices', updated);
+      return updated;
+    });
     addToast('info', language === 'bn' ? 'বিজ্ঞপ্তি মুছে ফেলা হয়েছে' : 'Notice Deleted');
   };
 
   // Public Applications Handlers
   const handleAddNewApplication = (newApp: PublicApplication) => {
-    setPublicApplications(prev => [newApp, ...prev]);
-    try {
-      localStorage.setItem('colash_public_applications', JSON.stringify([newApp, ...publicApplications]));
-      fetch('/api/applications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newApp)
-      }).catch(err => console.warn(err));
-    } catch (e) {
-      console.error(e);
-    }
+    setPublicApplications(prev => {
+      const updated = [newApp, ...prev];
+      persistState('publicApplications', updated);
+      return updated;
+    });
+    fetch('/api/applications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newApp)
+    }).catch(err => console.warn(err));
   };
 
   const handleUpdateApplication = (updatedApp: PublicApplication) => {
-    setPublicApplications(prev => prev.map(a => a.id === updatedApp.id ? updatedApp : a));
-    try {
-      const updatedList = publicApplications.map(a => a.id === updatedApp.id ? updatedApp : a);
-      localStorage.setItem('colash_public_applications', JSON.stringify(updatedList));
-      fetch(`/api/applications/${updatedApp.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedApp)
-      }).catch(err => console.warn(err));
-    } catch (e) {
-      console.error(e);
-    }
+    setPublicApplications(prev => {
+      const updatedList = prev.map(a => a.id === updatedApp.id ? updatedApp : a);
+      persistState('publicApplications', updatedList);
+      return updatedList;
+    });
+    fetch(`/api/applications/${updatedApp.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updatedApp)
+    }).catch(err => console.warn(err));
   };
 
   // AI Conversation Logs Handler
   const handleLogAIConversation = (newLog: AIConversationLog) => {
-    setAiConversationLogs(prev => [newLog, ...prev]);
-    try {
-      localStorage.setItem('colash_ai_logs', JSON.stringify([newLog, ...aiConversationLogs]));
-    } catch (e) {
-      console.error(e);
+    setAiConversationLogs(prev => {
+      const updated = [newLog, ...prev].slice(0, 500);
+      persistState('aiConversationLogs', updated);
+      return updated;
+    });
+  };
+
+  // Full JSON Backup Restore Handler
+  const handleRestoreBackup = (parsed: any) => {
+    const bulk: Partial<Record<StateKey, unknown>> = {};
+    if (Array.isArray(parsed.projects)) {
+      setProjects(parsed.projects);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.projects, parsed.projects);
+      bulk.projects = parsed.projects;
+    }
+    if (Array.isArray(parsed.notices)) {
+      setNotices(parsed.notices);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.notices, parsed.notices);
+      bulk.notices = parsed.notices;
+    }
+    if (Array.isArray(parsed.donations)) {
+      setDonations(parsed.donations);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.donations, parsed.donations);
+      bulk.donations = parsed.donations;
+    }
+    if (Array.isArray(parsed.volunteers)) {
+      setVolunteers(parsed.volunteers);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.volunteers, parsed.volunteers);
+      bulk.volunteers = parsed.volunteers;
+    }
+    if (Array.isArray(parsed.financialRecords)) {
+      setFinancialRecords(parsed.financialRecords);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.financialRecords, parsed.financialRecords);
+      bulk.financialRecords = parsed.financialRecords;
+    }
+    if (Array.isArray(parsed.generalMembers)) {
+      setGeneralMembers(parsed.generalMembers);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.generalMembers, parsed.generalMembers);
+      bulk.generalMembers = parsed.generalMembers;
+    }
+    if (Array.isArray(parsed.committeeTerms)) {
+      setCommitteeTerms(parsed.committeeTerms);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.committeeTerms, parsed.committeeTerms);
+      bulk.committeeTerms = parsed.committeeTerms;
+    }
+    if (Array.isArray(parsed.advisors)) {
+      setAdvisors(parsed.advisors);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.advisors, parsed.advisors);
+      bulk.advisors = parsed.advisors;
+    }
+    if (Array.isArray(parsed.paymentChannels)) {
+      setPaymentChannels(parsed.paymentChannels);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.paymentChannels, parsed.paymentChannels);
+      bulk.paymentChannels = parsed.paymentChannels;
+    }
+    if (parsed.websiteConfig) {
+      setWebsiteCustomConfig(parsed.websiteConfig);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.websiteCustomConfig, parsed.websiteConfig);
+      bulk.websiteCustomConfig = parsed.websiteConfig;
+    }
+    if (Array.isArray(parsed.womensTeamMembers)) {
+      setWomensTeamMembers(parsed.womensTeamMembers);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.womensTeamMembers, parsed.womensTeamMembers);
+      bulk.womensTeamMembers = parsed.womensTeamMembers;
+    }
+    if (parsed.mapConfig) {
+      setMapConfig(parsed.mapConfig);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.mapConfig, parsed.mapConfig);
+      bulk.mapConfig = parsed.mapConfig;
+    }
+    if (Array.isArray(parsed.aiKnowledgeBase)) {
+      setAiKnowledgeBase(parsed.aiKnowledgeBase);
+      writeLocalStorageSafely(STORAGE_KEY_MAP.aiKnowledgeBase, parsed.aiKnowledgeBase);
+      bulk.aiKnowledgeBase = parsed.aiKnowledgeBase;
+    }
+    if (Object.keys(bulk).length > 0) {
+      void syncBulkStateToServer(bulk);
     }
   };
 
@@ -1410,7 +1439,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F5F3ED] dark:bg-[#071017] text-[#102B3F] dark:text-stone-100 transition-colors duration-200">
+    <div
+      className="min-h-screen flex flex-col bg-[#F5F3ED] dark:bg-[#071017] text-[#102B3F] dark:text-stone-100 transition-colors duration-200"
+      style={
+        theme === 'light' && websiteCustomConfig.bgTone && websiteCustomConfig.bgTone !== '#F5F3ED'
+          ? { backgroundColor: websiteCustomConfig.bgTone }
+          : undefined
+      }
+    >
       
       {/* Top Navbar with Active Section Sync */}
       <Navbar
@@ -1868,6 +1904,7 @@ export default function App() {
               <div className="space-y-6">
                 <ContactSection
                   language={language}
+                  websiteConfig={websiteCustomConfig}
                   onToast={addToast}
                 />
                 <GoogleMapsSection
@@ -2023,6 +2060,7 @@ export default function App() {
         publicApplications={publicApplications}
         onUpdatePublicApplication={handleUpdateApplication}
         aiConversationLogs={aiConversationLogs}
+        onRestoreBackup={handleRestoreBackup}
         initialTab={adminInitialTab}
         onToast={addToast}
       />

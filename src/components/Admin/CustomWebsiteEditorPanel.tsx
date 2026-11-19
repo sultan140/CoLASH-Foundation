@@ -1,4 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { compressImageFile } from '../../utils/imageCompressor';
+import { writeLocalStorageSafely } from '../../utils/statePersistence';
 import {
   Palette,
   LayoutTemplate,
@@ -104,8 +106,21 @@ export const CustomWebsiteEditorPanel: React.FC<CustomWebsiteEditorPanelProps> =
     }
   });
 
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(() => {
+    try {
+      return Boolean(localStorage.getItem('colash_draft_website_config'));
+    } catch {
+      return false;
+    }
+  });
   const [previewMode, setPreviewMode] = useState(false);
+
+  // Sync draftConfig whenever publishedConfig updates (e.g. server hydration or restore) if no active unsaved draft
+  useEffect(() => {
+    if (!hasUnsavedChanges) {
+      setDraftConfig({ ...publishedConfig });
+    }
+  }, [publishedConfig, hasUnsavedChanges]);
 
   // Hidden file inputs for image uploads
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -116,52 +131,72 @@ export const CustomWebsiteEditorPanel: React.FC<CustomWebsiteEditorPanelProps> =
   const updateDraftField = <K extends keyof WebsiteCustomConfig>(key: K, value: WebsiteCustomConfig[K]) => {
     setDraftConfig(prev => {
       const next = { ...prev, [key]: value, isPublished: false };
+      writeLocalStorageSafely('colash_draft_website_config', next);
       return next;
     });
     setHasUnsavedChanges(true);
   };
 
-  // Handle image upload from computer
-  const handleImageFileUpload = (
+  // Handle image upload from computer with WebP compression to prevent storage quota failure
+  const handleImageFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     fieldKey: 'logoUrl' | 'heroImageUrl' | 'womensTeamLogoUrl' | 'founderImageUrl'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 3 * 1024 * 1024) {
-      onToast('error', language === 'bn' ? 'ফাইল সাইজ অনেক বড়' : 'File too large', language === 'bn' ? 'সর্বোচ্চ ৩ মেগাবাইট সাইজের ছবি নির্বাচন করুন।' : 'Maximum allowed size is 3MB.');
+    if (file.size > 6 * 1024 * 1024) {
+      onToast('error', language === 'bn' ? 'ফাইল সাইজ অনেক বড়' : 'File too large', language === 'bn' ? 'সর্বোচ্চ ৬ মেগাবাইট সাইজের ছবি নির্বাচন করুন।' : 'Maximum allowed size is 6MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const result = uploadEvent.target?.result as string;
-      if (result) {
-        updateDraftField(fieldKey, result);
-        onToast('success', language === 'bn' ? 'ছবি আপলোড সম্পন্ন' : 'Image Uploaded', language === 'bn' ? 'খসড়া রূপে নতুন ছবি যুক্ত হয়েছে।' : 'New image added to draft.');
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: fieldKey === 'logoUrl' || fieldKey === 'womensTeamLogoUrl' ? 600 : 1280,
+        maxHeight: fieldKey === 'logoUrl' || fieldKey === 'womensTeamLogoUrl' ? 600 : 1280,
+        quality: 0.82,
+        format: 'image/webp'
+      });
+      updateDraftField(fieldKey, compressed.dataUrl);
+      onToast(
+        'success',
+        language === 'bn' ? 'ছবি আপলোড ও অপ্টিমাইজ সম্পন্ন' : 'Image Uploaded & Optimized',
+        language === 'bn'
+          ? `সাইজ ${Math.round(compressed.compressedSize / 1024)} KB — এখন "পাবলিশ করুন" বাটনে ক্লিক করে সংরক্ষণ করুন।`
+          : `Optimized to ${Math.round(compressed.compressedSize / 1024)} KB. Click Publish Live to save.`
+      );
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (uploadEvent) => {
+        const result = uploadEvent.target?.result as string;
+        if (result) {
+          updateDraftField(fieldKey, result);
+          onToast('success', language === 'bn' ? 'ছবি আপলোড সম্পন্ন' : 'Image Uploaded', language === 'bn' ? 'খসড়া রূপে নতুন ছবি যুক্ত হয়েছে।' : 'New image added to draft.');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Save Draft (Local only)
   const handleSaveDraft = () => {
-    try {
-      localStorage.setItem('colash_draft_website_config', JSON.stringify({ ...draftConfig, isPublished: false }));
-      setHasUnsavedChanges(false);
+    const res = writeLocalStorageSafely('colash_draft_website_config', { ...draftConfig, isPublished: false });
+    if (res.ok) {
       onToast(
         'info',
         language === 'bn' ? 'খসড়া সংরক্ষণ সম্পন্ন' : 'Draft Saved',
-        language === 'bn' ? 'পরিবর্তনগুলো খসড়া হিসেবে সংরক্ষিত হয়েছে। লাইভ সাইটে দেখাতে "পাবলিশ" করুন।' : 'Changes saved as draft. Click Publish to apply live.'
+        language === 'bn' ? 'পরিবর্তনগুলো খসড়া হিসেবে সংরক্ষিত হয়েছে। লাইভ সাইটে দেখাতে "পাবলিশ করুন" বাটনে ক্লিক করুন।' : 'Changes saved as draft. Click Publish Live to apply to the website.'
       );
-    } catch (e) {
-      console.error(e);
-      onToast('error', 'Failed to save draft');
+    } else {
+      onToast(
+        'error',
+        language === 'bn' ? 'ড্রাফট সেভ করা যায়নি' : 'Failed to save draft',
+        language === 'bn' ? 'সরাসরি "পাবলিশ করুন" বাটনে ক্লিক করে সার্ভারে সংরক্ষণ করুন।' : 'Please click Publish Live directly to save on the server.'
+      );
     }
   };
 
-  // Publish Draft to Live Website
+  // Publish Draft to Live Website & Server DB
   const handlePublish = () => {
     if (!hasPermission) {
       onToast('error', language === 'bn' ? 'অনুমতি নেই' : 'Unauthorized', language === 'bn' ? 'শুধুমাত্র অনুমোদিত অ্যাডমিন ওয়েবসাইট পাবলিশ করতে পারেন।' : 'Only authorized admins can publish website edits.');
@@ -175,20 +210,19 @@ export const CustomWebsiteEditorPanel: React.FC<CustomWebsiteEditorPanelProps> =
       lastPublishedBy: currentAdmin ? `${currentAdmin.name} (${currentAdmin.roleTitleBn})` : 'Super Admin'
     };
 
-    onPublishConfig(finalConfig);
-    setDraftConfig(finalConfig);
-    setHasUnsavedChanges(false);
     try {
-      localStorage.setItem('colash_published_website_config', JSON.stringify(finalConfig));
       localStorage.removeItem('colash_draft_website_config');
     } catch (e) {
       console.error(e);
     }
+    onPublishConfig(finalConfig);
+    setDraftConfig(finalConfig);
+    setHasUnsavedChanges(false);
 
     onToast(
       'success',
-      language === 'bn' ? 'ওয়েবসাইটে সফলভাবে পাবলিশ হয়েছে!' : 'Published Live Successfully!',
-      language === 'bn' ? 'সকল টেক্সট, পরিসংখ্যান, চার্টার, ব্যাংক ও ডিজাইনের পরিবর্তন লাইভ ওয়েবসাইটে সক্রিয় করা হয়েছে।' : 'All website customization changes are now active on the live website.'
+      language === 'bn' ? 'ওয়েবসাইটে সফলভাবে পাবলিশ ও সেভ হয়েছে!' : 'Published & Saved Live Successfully!',
+      language === 'bn' ? 'সকল টেক্সট, পরিসংখ্যান, চার্টার, ব্যাংক ও ডিজাইনের পরিবর্তন লাইভ ওয়েবসাইট ও সার্ভারে সংরক্ষিত হয়েছে।' : 'All website customization changes are saved and active live.'
     );
   };
 

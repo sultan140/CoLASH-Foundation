@@ -132,6 +132,7 @@ interface AdminDashboardModalProps {
   paymentChannels?: PaymentChannel[];
   onUpdatePaymentChannels?: (channels: PaymentChannel[]) => void;
   onDeleteDonation?: (id: string) => void;
+  onRestoreBackup?: (parsed: any) => void;
   initialTab?: string;
   onToast: (type: 'success' | 'error' | 'info', title: string, description?: string) => void;
 }
@@ -292,6 +293,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   paymentChannels = [],
   onUpdatePaymentChannels,
   onDeleteDonation,
+  onRestoreBackup,
   initialTab,
   onToast
 }) => {
@@ -3517,7 +3519,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                             advisors,
                             paymentChannels,
                             websiteConfig: publishedWebsiteConfig,
-                            womensTeamMembers
+                            womensTeamMembers,
+                            mapConfig,
+                            aiKnowledgeBase
                           };
                           const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
                           const url = URL.createObjectURL(blob);
@@ -3557,23 +3561,36 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                           reader.onload = (event) => {
                             try {
                               const parsed = JSON.parse(event.target?.result as string);
-                              if (parsed.projects) {
-                                localStorage.setItem('colash_projects_v2', JSON.stringify(parsed.projects));
-                              }
-                              if (parsed.generalMembers && onUpdateGeneralMembers) {
-                                onUpdateGeneralMembers(parsed.generalMembers);
-                              }
-                              if (parsed.committeeTerms && onUpdateCommitteeTerms) {
-                                onUpdateCommitteeTerms(parsed.committeeTerms);
-                              }
-                              if (parsed.advisors && onUpdateAdvisors) {
-                                onUpdateAdvisors(parsed.advisors);
-                              }
-                              if (parsed.paymentChannels && onUpdatePaymentChannels) {
-                                onUpdatePaymentChannels(parsed.paymentChannels);
-                              }
-                              if (parsed.websiteConfig && onPublishWebsiteConfig) {
-                                onPublishWebsiteConfig(parsed.websiteConfig);
+                              const normalized = parsed?.data ? {
+                                projects: parsed.data.projects,
+                                generalMembers: parsed.data.members,
+                                donations: parsed.data.donations,
+                                volunteers: parsed.data.volunteers,
+                                committeeTerms: parsed.data.committeeTerms,
+                                advisors: parsed.data.advisors,
+                                womensTeamMembers: parsed.data.womensTeamMembers,
+                              } : parsed;
+                              if (onRestoreBackup) {
+                                onRestoreBackup(normalized);
+                              } else {
+                                if (normalized.projects) {
+                                  localStorage.setItem('colash_projects', JSON.stringify(normalized.projects));
+                                }
+                                if (normalized.generalMembers && onUpdateGeneralMembers) {
+                                  onUpdateGeneralMembers(normalized.generalMembers);
+                                }
+                                if (normalized.committeeTerms && onUpdateCommitteeTerms) {
+                                  onUpdateCommitteeTerms(normalized.committeeTerms);
+                                }
+                                if (normalized.advisors && onUpdateAdvisors) {
+                                  onUpdateAdvisors(normalized.advisors);
+                                }
+                                if (normalized.paymentChannels && onUpdatePaymentChannels) {
+                                  onUpdatePaymentChannels(normalized.paymentChannels);
+                                }
+                                if (normalized.websiteConfig && onPublishWebsiteConfig) {
+                                  onPublishWebsiteConfig(normalized.websiteConfig);
+                                }
                               }
                               onToast('success', language === 'bn' ? 'ডাটাবেস সফলভাবে রিস্টোর হয়েছে!' : 'Database Restored Successfully!');
                             } catch {
